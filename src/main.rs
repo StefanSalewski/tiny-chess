@@ -1,5 +1,5 @@
 // Plain egui frontend for the tiny Salewski chess engine
-// v 0.2 -- 08-JUM-2024
+// v 0.2 -- 11-JUM-2024
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 
@@ -11,7 +11,7 @@
 use eframe::egui;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+//use std::time::Duration;
 
 mod engine;
 

@@ -1,5 +1,5 @@
 // The Salewski Chess Engine -- ported from Nim to Rust as a tiny excercise while learning the Rust language
-// v 0.2 -- 08-JUN-2024
+// v 0.2 -- 11-JUN-2024
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 //
@@ -197,6 +197,9 @@ pub fn reset_game(g: &mut Game) {
     g.has_moved = BitSet::new();
     g.move_chain = [0; 64]; // which is better/faster?
                             // g.move_chain.iter_mut().for_each(|m| *m = 0)
+    g.move_counter = 0;
+    g.pjm = -1;
+    g.has_moved = BitSet::new();
 }
 
 pub fn new_game() -> Game {
