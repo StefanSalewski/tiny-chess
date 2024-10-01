@@ -1,5 +1,5 @@
 // Plain egui frontend for the tiny Salewski chess engine
-// v 0.2 -- 11-JUM-2024
+// v 0.2 -- 01-OCT-2024
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 
@@ -56,7 +56,8 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| {
             // This gives us image support:
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Box::<MyApp>::default()
+            //Box::<MyApp>::default()
+            Ok(Box::<MyApp>::default())
         }),
     )
 }

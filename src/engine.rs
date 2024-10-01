@@ -1,5 +1,5 @@
 // The Salewski Chess Engine -- ported from Nim to Rust as a tiny excercise while learning the Rust language
-// v 0.2 -- 11-JUN-2024
+// v 0.2 -- 01-OCT-2024
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 //
@@ -21,7 +21,7 @@
 // #![allow(non_snake_case)]
 // #![allow(non_upper_case_globals)]
 
-use bitintr::Popcnt;
+//use bitintr::Popcnt;
 use core::ops::Range;
 use num_traits::sign::signum;
 use std::cmp::max;
@@ -1784,7 +1784,7 @@ fn abeta(
     }
 
     let hash_res_kks_len =
-        (hash_res.kks.len() as i64 + attacs + hash_res.control.0.popcnt() as i64) as i16;
+        (hash_res.kks.len() as i64 + attacs + hash_res.control.0.count_ones() as i64) as i16;
     if depth_0 == 0 {
         // more detailed null move estimation for quiescence search. NOTE: Take attacs into account?
         evaluation += hash_res_kks_len; // we may do a more fine grained board control evaluation?
