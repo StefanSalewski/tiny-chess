@@ -1,5 +1,7 @@
+// cargo clippy -- -A clippy::collapsible_if -A unreachable_code -A dead_code -A clippy::upper_case_acronyms -A clippy::out_of_bounds_indexing -A clippy::overly_complex_bool_expr -A clippy::too_many_arguments -A clippy::assertions_on_constants
+//
 // The Salewski Chess Engine -- ported from Nim to Rust as a tiny excercise while learning the Rust language
-// v 0.2 -- 01-OCT-2024
+// v 0.2.1 -- 15-JUN-2025
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 //
@@ -25,13 +27,13 @@
 use core::ops::Range;
 use num_traits::sign::signum;
 use std::cmp::max;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 
 // ### our own primitive bitset type
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 struct BitSet(u64);
 
 impl BitSet {
@@ -110,11 +112,13 @@ impl BitSet {
     }
 }
 
+/*
 impl Default for BitSet {
     fn default() -> Self {
         BitSet(0)
     }
 }
+*/
 // ###
 
 #[allow(dead_code)]
@@ -145,11 +149,11 @@ pub struct Game {
     has_moved: HasMoved,
     move_chain: [i8; 64], // large enough to avoid IF index-in-range test
     freedom: Freedom,
-    pawn_path: [Path; 2],
-    knight_path: Path,
-    bishop_path: Path,
-    rook_path: Path,
-    king_path: Path,
+    pawn_path: [Path4; 2],
+    knight_path: Path8,
+    bishop_path: Path16,
+    rook_path: Path16,
+    king_path: Path8,
     to_100: u8,
     pub secs_per_move: f32,
     time_0: std::time::Duration,
@@ -162,7 +166,7 @@ pub struct Game {
 }
 
 pub fn print_move_list(g: &Game) {
-    println!("");
+    println!(" ");
     for el in &g.debug_list {
         println!("{}", el);
     }
@@ -196,7 +200,7 @@ pub fn reset_game(g: &mut Game) {
     g.board = SETUP;
     g.has_moved = BitSet::new();
     g.move_chain = [0; 64]; // which is better/faster?
-                            // g.move_chain.iter_mut().for_each(|m| *m = 0)
+    // g.move_chain.iter_mut().for_each(|m| *m = 0)
     g.move_counter = 0;
     g.pjm = -1;
     g.has_moved = BitSet::new();
@@ -248,26 +252,26 @@ pub fn new_game() -> Game {
         has_moved: BitSet::new(),
         move_chain: [0; 64],
         freedom: [[0; 64]; 13],
-        pawn_path: [[[Gnu {
+        pawn_path: [[[MiniGnu {
             pos: 0,
-            nxt_dir_idx: 0,
-        }; 64]; 64]; 2],
-        knight_path: [[Gnu {
+            //nxt_dir_idx: 0,
+        }; 4]; 64]; 2],
+        knight_path: [[MiniGnu {
             pos: 0,
-            nxt_dir_idx: 0,
-        }; 64]; 64],
+            //nxt_dir_idx: 0,
+        }; 8]; 64],
         bishop_path: [[Gnu {
             pos: 0,
             nxt_dir_idx: 0,
-        }; 64]; 64],
+        }; 16]; 64],
         rook_path: [[Gnu {
             pos: 0,
             nxt_dir_idx: 0,
-        }; 64]; 64],
-        king_path: [[Gnu {
+        }; 16]; 64],
+        king_path: [[MiniGnu {
             pos: 0,
-            nxt_dir_idx: 0,
-        }; 64]; 64],
+            //nxt_dir_idx: 0,
+        }; 8]; 64],
         to_100: 0,
         move_counter: 0,
         pjm: -1,
@@ -386,26 +390,26 @@ type BitBuffer192 = [u8; bit_buffer_size()];
 
 const MAX_DEPTH: usize = 15; // other values should work as well
 
-const VOID_ID: i64 = 0;
-const PAWN_ID: i64 = 1;
-const KNIGHT_ID: i64 = 2;
-const BISHOP_ID: i64 = 3;
-const ROOK_ID: i64 = 4;
-const QUEEN_ID: i64 = 5;
-const KING_ID: i64 = 6;
-const ARRAY_BASE_6: i64 = 6;
-const W_PAWN: i64 = PAWN_ID;
-const W_KNIGHT: i64 = KNIGHT_ID;
-const W_BISHOP: i64 = BISHOP_ID;
-const W_ROOK: i64 = ROOK_ID;
-const W_QUEEN: i64 = QUEEN_ID;
-const W_KING: i64 = KING_ID;
-const B_PAWN: i64 = -PAWN_ID;
-const B_KNIGHT: i64 = -KNIGHT_ID;
-const B_BISHOP: i64 = -BISHOP_ID;
-const B_ROOK: i64 = -ROOK_ID;
-const B_QUEEN: i64 = -QUEEN_ID;
-const B_KING: i64 = -KING_ID;
+const VOID_ID: i8 = 0;
+const PAWN_ID: i8 = 1;
+const KNIGHT_ID: i8 = 2;
+const BISHOP_ID: i8 = 3;
+const ROOK_ID: i8 = 4;
+const QUEEN_ID: i8 = 5;
+const KING_ID: i8 = 6;
+const ARRAY_BASE_6: i8 = 6;
+const W_PAWN: i8 = PAWN_ID;
+const W_KNIGHT: i8 = KNIGHT_ID;
+const W_BISHOP: i8 = BISHOP_ID;
+const W_ROOK: i8 = ROOK_ID;
+const W_QUEEN: i8 = QUEEN_ID;
+const W_KING: i8 = KING_ID;
+const B_PAWN: i8 = -PAWN_ID;
+const B_KNIGHT: i8 = -KNIGHT_ID;
+const B_BISHOP: i8 = -BISHOP_ID;
+const B_ROOK: i8 = -ROOK_ID;
+const B_QUEEN: i8 = -QUEEN_ID;
+const B_KING: i8 = -KING_ID;
 
 const FORWARD: i32 = 8;
 const SIDEWARD: i32 = 1;
@@ -462,7 +466,7 @@ const FIGURE_VALUE: [i16; KING_ID as usize + 1] = [
     KING_VALUE,
 ];
 
-const SETUP: [i64; 64] = [
+const SETUP: [i8; 64] = [
     W_ROOK, W_KNIGHT, W_BISHOP, W_KING, W_QUEEN, W_BISHOP, W_KNIGHT, W_ROOK, W_PAWN, W_PAWN,
     W_PAWN, W_PAWN, W_PAWN, W_PAWN, W_PAWN, W_PAWN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, B_PAWN, B_PAWN, B_PAWN, B_PAWN, B_PAWN, B_PAWN,
@@ -513,7 +517,7 @@ type ColorIndex = i8; //0 .. 1
 type Position = i8; //0 .. 63
 type Col = i8; //0 .. 7
 type Row = i8; //0 .. 7
-type FigureID = i64;
+type FigureID = i8;
 pub type Board = [FigureID; 64];
 type Freedom = [[i16; 64]; 13]; // VOID_ID..KING_ID; Maybe we should call it happyness
 
@@ -533,14 +537,25 @@ type _PawnMarch = [ChessSquares; 4 + 32 + 1]; // array[-4 .. 32, ChessSquares];
 struct Gnu {
     // move precalculation is based on old gnuchess ideas...
     pos: i8,
-    nxt_dir_idx: i64,
+    nxt_dir_idx: u8, // should really be one byte in size!!!
 }
 
-type Path = [[Gnu; 64]; 64];
+#[derive(Copy, Clone)]
+struct MiniGnu {
+    // move precalculation is based on old gnuchess ideas...
+    pos: i8,
+    //nxt_dir_idx: u8, // should really be one byte in size!!!
+}
+
+type Path16 = [[Gnu; 16]; 64];
+type Path8 = [[MiniGnu; 8]; 64];
+type Path4 = [[MiniGnu; 4]; 64];
 
 const IGNORE_MARKER_LOW_INT16: i16 = i16::MIN;
 const INVALID_SCORE: i16 = i16::MIN;
 const LOWEST_SCORE: i16 = -i16::MAX; // allows inverting the sign
+
+const NO_NXT_DIR_IDX: u8 = 100;
 
 pub type State = i32;
 const STATE_PLAYING: i32 = 0;
@@ -614,7 +629,7 @@ fn lift_i16(a: &mut i16, b: i16) {
 }
 
 const TTE_SIZE: usize = 1024 * 1024 * 2; // must be a power of 2
-const TT_TRY: i32 = 5;
+const TT_TRY: usize = 5;
 
 fn odd(i: i8) -> bool {
     (i & 1) != 0
@@ -636,16 +651,20 @@ fn sqr(i: i64) -> i64 {
     i * i
 }
 
+fn sqri8(i: i8) -> i8 {
+    i * i
+}
+
 fn is_a_pawn(i: i8) -> bool {
-    i == W_PAWN as i8 || i == B_PAWN as i8
+    i == W_PAWN || i == B_PAWN
 }
 
 fn is_a_king(i: i8) -> bool {
-    i == W_KING as i8 || i == B_KING as i8
+    i == W_KING || i == B_KING
 }
 
 fn is_queen_or_king(i: i8) -> bool {
-    i == W_QUEEN as i8 || i == B_QUEEN as i8 || i == W_KING as i8 || i == B_KING as i8
+    i == W_QUEEN || i == B_QUEEN || i == W_KING || i == B_KING
 }
 
 fn col_idx(c: Color) -> ColorIndex {
@@ -661,7 +680,7 @@ fn _is_black(c: Color) -> bool {
 }
 
 fn opp_color(c: Color) -> Color {
-    (-c as i64) as Color
+    (-c) as Color
 }
 
 fn col(p: Position) -> Col {
@@ -673,7 +692,8 @@ fn row(p: Position) -> Row {
 }
 
 fn base_row(p: Position) -> bool {
-    p < 8 || p > 55
+    //p < 8 || p > 55
+    !(8..=55).contains(&p)
 }
 
 fn rows_to_go(p: Position, c: Color) -> i8 {
@@ -690,27 +710,28 @@ fn board_hash(b: Board) -> u64 {
     hasher.finish()
 }
 
-fn bit_buffer_hash(key: &BitBuffer192) -> u64 {
+fn bit_buffer_hash(key: &BitBuffer192) -> usize {
     let mut hasher = DefaultHasher::new();
     Hash::hash_slice(&key[0..CORE_BIT_BUFFER_SIZE], &mut hasher);
-    hasher.finish()
+    hasher.finish() as usize
 }
 
-fn get_tte<'a>(g: &'a mut Game, key: BitBuffer192) -> isize {
+// we use position 0, which is actually a valid index, as marker for failure, avoiding -1 with isize type.
+fn get_tte(g: &mut Game, key: BitBuffer192) -> usize {
     debug_assert!(g.tt.len() == TTE_SIZE);
     let h0 = bit_buffer_hash(&key);
     for i in 0..(TT_TRY + 1) {
-        let h = (h0.wrapping_add(i as u64)) as usize & ((TTE_SIZE - 1) as usize);
+        let h = (h0.wrapping_add(i)) & (TTE_SIZE - 1);
         if g.tt[h].key[0..CORE_BIT_BUFFER_SIZE] == key[0..CORE_BIT_BUFFER_SIZE] {
             if BIT_BUFFER_SIZE == HASH_BIT_BUFFER_SIZE {
-                let bh = board_hash(g.board).to_le_bytes();
-                debug_assert!(key[CORE_BIT_BUFFER_SIZE..HASH_BIT_BUFFER_SIZE] == bh);
-                debug_assert!(g.tt[h].key[CORE_BIT_BUFFER_SIZE..HASH_BIT_BUFFER_SIZE] == bh);
+                let _bh = board_hash(g.board).to_le_bytes();
+                // clippy debug_assert!(key[CORE_BIT_BUFFER_SIZE..HASH_BIT_BUFFER_SIZE] == bh);
+                // clippy debug_assert!(g.tt[h].key[CORE_BIT_BUFFER_SIZE..HASH_BIT_BUFFER_SIZE] == bh);
             }
-            return h as isize;
+            return h;
         }
     }
-    return -1;
+    0
 }
 
 fn debug_inc(x: &mut i64) {
@@ -719,17 +740,17 @@ fn debug_inc(x: &mut i64) {
     }
 }
 
-fn put_tte(g: &mut Game, key: BitBuffer192, mut res: HashResult, pri: i64, hash_pos: isize) {
+fn put_tte(g: &mut Game, key: BitBuffer192, mut res: HashResult, pri: i64, hash_pos: usize) {
     debug_assert!(g.tt.len() == TTE_SIZE);
     debug_inc(&mut g.table_put);
-    if hash_pos >= 0 {
+    if hash_pos > 0 {
         res.pri = pri;
-        g.tt[hash_pos as usize].res = res;
+        g.tt[hash_pos].res = res;
         return;
     }
     let h0 = bit_buffer_hash(&key);
     for i in 0..(TT_TRY + 1) {
-        let h = (h0.wrapping_add(i as u64)) as usize & ((TTE_SIZE - 1) as usize);
+        let h = (h0.wrapping_add(i)) & (TTE_SIZE - 1);
         if g.tt[h].res.pri < pri {
             res.pri = pri;
             g.tt[h].res = res;
@@ -792,11 +813,11 @@ fn is_void_at(g: &Game, p: Position) -> bool {
 }
 
 fn is_a_pawn_at(g: &Game, p: Position) -> bool {
-    sqr(g.board[p as usize]) == PAWN_ID
+    sqri8(g.board[p as usize]) == PAWN_ID
 }
 
 fn is_a_king_at(g: &Game, p: Position) -> bool {
-    sqr(g.board[p as usize]) == KING_ID * KING_ID
+    sqri8(g.board[p as usize]) == KING_ID * KING_ID
 }
 
 fn _check(g: &Game) {
@@ -867,14 +888,14 @@ fn much_faster_write_to_bit_buffer(g: &Game, c: Color) -> BitBuffer192 {
                 let f = (ARRAY_BASE_6 + g.board[bp]) as usize; // figure
                 bp += 8; // next (row) board position
                 let newbits: u64 = CODE[f];
-                buf = buf | (newbits << shift);
+                buf |= newbits << shift;
                 shift += L[f];
             }
             collector[bpos..(bpos + 8)].copy_from_slice(&buf.to_le_bytes());
             debug_assert!(bpos + 8 <= collector.len());
             bpos += shift / 8;
             let r = shift & (!7);
-            buf = buf >> r;
+            buf >>= r;
             shift &= 7; // shift -= r;
         }
     }
@@ -889,11 +910,12 @@ fn much_faster_write_to_bit_buffer(g: &Game, c: Color) -> BitBuffer192 {
 
 fn encode_board(g: &Game, c: Color) -> BitBuffer192 {
     //return simpleWriteToBitBuffer(g, c);
-    return much_faster_write_to_bit_buffer(g, c);
+    much_faster_write_to_bit_buffer(g, c)
 }
 
 fn off_board_64(dst: Position) -> bool {
-    dst < 0 || dst > 63
+    // dst < 0 || dst > 63
+    !(0..=63).contains(&dst)
 }
 
 // do we not cross the border of the board when figure is moved in a regular way
@@ -914,7 +936,7 @@ fn pawnmove_is_valid(c: Color, src: Position, dst: Position) -> bool {
             row(src) == B7 as i8
         }
     }
-    return result;
+    result
 }
 
 fn init_rook(g: &mut Game) {
@@ -927,11 +949,12 @@ fn init_rook(g: &mut Game) {
                 if !move_is_valid(pos, dst) {
                     break;
                 }
-                g.rook_path[src as usize][i].pos = dst as i8;
+                g.rook_path[src as usize][i].pos = dst;
                 if pos == src {
-                    g.rook_path[src as usize][i].nxt_dir_idx = -1; // temporary marker; default content is zero.
+                    g.rook_path[src as usize][i].nxt_dir_idx = NO_NXT_DIR_IDX; // temporary marker; default content is zero.
                 }
                 i += 1;
+                //println!("==> {}", i);
                 pos = dst;
             }
         }
@@ -939,8 +962,8 @@ fn init_rook(g: &mut Game) {
         g.rook_path[src as usize][i].pos = -1; // terminator
         while i > 0 {
             i -= 1;
-            let h = g.rook_path[src as usize][i].nxt_dir_idx == -1;
-            g.rook_path[src as usize][i].nxt_dir_idx = nxt_dir_start as i64;
+            let h = g.rook_path[src as usize][i].nxt_dir_idx == NO_NXT_DIR_IDX;
+            g.rook_path[src as usize][i].nxt_dir_idx = nxt_dir_start as u8;
             if h {
                 nxt_dir_start = i;
             }
@@ -958,9 +981,10 @@ fn init_bishop(g: &mut Game) {
                 if !move_is_valid(pos, dst) {
                     break;
                 }
-                g.bishop_path[src as usize][i].pos = dst as i8;
+                g.bishop_path[src as usize][i].pos = dst;
                 if pos == src {
-                    g.bishop_path[src as usize][i].nxt_dir_idx = -1; // temporary marker; default content is zero.
+                    g.bishop_path[src as usize][i].nxt_dir_idx = NO_NXT_DIR_IDX;
+                    // temporary marker; default content is zero.
                 }
                 i += 1;
                 pos = dst;
@@ -974,8 +998,8 @@ fn init_bishop(g: &mut Game) {
         g.freedom[(ARRAY_BASE_6 + B_QUEEN) as usize][src as usize] = (i as i16 - 10) * 4;
         while i > 0 {
             i -= 1;
-            let h = g.bishop_path[src as usize][i].nxt_dir_idx == -1;
-            g.bishop_path[src as usize][i].nxt_dir_idx = nxt_dir_start as i64;
+            let h = g.bishop_path[src as usize][i].nxt_dir_idx == NO_NXT_DIR_IDX;
+            g.bishop_path[src as usize][i].nxt_dir_idx = nxt_dir_start as u8;
             if h {
                 nxt_dir_start = i;
             }
@@ -988,12 +1012,14 @@ fn init_knight(g: &mut Game) {
         let mut i = 0;
         for d in KNIGHT_DIRS {
             if knightmove_is_valid(src, src + d as i8) {
-                g.knight_path[src as usize][i].pos = (src + d as i8) as i8;
-                g.knight_path[src as usize][i].nxt_dir_idx = (i + 1) as i64; // not really needed
+                g.knight_path[src as usize][i].pos = src + d as i8;
+                //g.knight_path[src as usize][i].nxt_dir_idx = i as u8 + 1; // not really needed
                 i += 1;
             }
         }
-        g.knight_path[src as usize][i].pos = -1;
+        if i < 8 {
+            g.knight_path[src as usize][i].pos = -1;
+        }
         g.freedom[(ARRAY_BASE_6 + W_KNIGHT) as usize][src as usize] = (i as i16 - 5) * 4; // range -12..12
         g.freedom[(ARRAY_BASE_6 + B_KNIGHT) as usize][src as usize] = (i as i16 - 5) * 4;
     }
@@ -1004,12 +1030,14 @@ fn init_king(g: &mut Game) {
         let mut i = 0;
         for d in KING_DIRS {
             if move_is_valid(src, src + d as i8) {
-                g.king_path[src as usize][i].pos = (src + d as i8) as i8;
-                g.king_path[src as usize][i].nxt_dir_idx = (i + 1) as i64;
+                g.king_path[src as usize][i].pos = src + d as i8;
+                //g.king_path[src as usize][i].nxt_dir_idx = i as u8 + 1;
                 i += 1;
             }
         }
-        g.king_path[src as usize][i].pos = -1;
+        if i < 8 {
+            g.king_path[src as usize][i].pos = -1;
+        }
         if src == 0 || src == 7 || src == 56 || src == 63 {
             g.freedom[(ARRAY_BASE_6 + W_KING) as usize][src as usize] = -16;
             g.freedom[(ARRAY_BASE_6 + B_KING) as usize][src as usize] = -16;
@@ -1021,23 +1049,23 @@ fn init_king(g: &mut Game) {
 fn init_pawn(g: &mut Game, color: Color) {
     const PS: [i16; 8] = [8, 4, 2, 0, 0, 0, 1, 0]; // +1 for pawn at start row, and promote pressure gain
     for src in POS_RANGE {
-        let mut i = 0;
-        for d in PAWN_DIRS_WHITE {
+        //let mut i = 0;
+        //for d in PAWN_DIRS_WHITE {
+        for (i, d) in PAWN_DIRS_WHITE.into_iter().enumerate() {
             g.pawn_path[col_idx(color) as usize][src as usize][i].pos =
                 if pawnmove_is_valid(color, src, (src as i32 + d * color as i32) as i8) {
-                    (src as i8 + (d * (color as i32)) as i8) as i8
+                    src + (d * (color as i32)) as i8
                 } else {
                     -1
                 };
-            g.pawn_path[col_idx(color) as usize][src as usize][i].nxt_dir_idx = i as i64 + 1; // not really needed
-            i += 1;
+            //g.pawn_path[col_idx(color) as usize][src as usize][i].nxt_dir_idx = i as u8 + 1; // not really needed
+            //i += 1;
         }
-        g.pawn_path[col_idx(color) as usize][src as usize][i as usize].pos = -1;
+        // g.pawn_path[col_idx(color) as usize][src as usize][i].pos = -1; // we use a for loop, so this sentinel is not needed
     }
-    let pc = color as i64;
+    let pc = color as i8;
     for p in POS_RANGE {
-        g.freedom[(ARRAY_BASE_6 + pc) as usize][p as usize] =
-            PS[rows_to_go(p as i8, color as i64) as usize];
+        g.freedom[(ARRAY_BASE_6 + pc) as usize][p as usize] = PS[rows_to_go(p, color) as usize];
     }
     // fixate outer pawns on start_row, mostly for initial move ordering
     let pawn_row = if color == COLOR_WHITE { B2 } else { B7 };
@@ -1086,7 +1114,7 @@ fn ixsort(arr: &mut Vec<KK>, highl: usize) {
 }
 
 // test for descending
-fn _my_is_sorted(a: &Vec<KK>, len: usize) -> bool {
+fn _my_is_sorted(a: &[KK], len: usize) -> bool {
     let mut i = len;
     while i > 1 && a[i - 2].s >= a[i - 1].s {
         i -= 1;
@@ -1108,120 +1136,121 @@ fn _valid(kk: KK) -> bool {
 }
 
 // caution, this is used for in_check() test too.
+#[inline(always)]
 fn wanted(kk: KK) -> bool {
     kk.sf * kk.df < (kk.s > 0) as i8
 }
 
 fn walk_rook(g: &Game, kk: KK, s: &mut KKS) {
-    let mut i: i64 = 0;
+    let mut i: usize = 0;
     let mut kk = kk;
     while {
-        kk.di = g.rook_path[kk.si as usize][i as usize].pos;
+        kk.di = g.rook_path[kk.si as usize][i].pos;
         kk.di
     } >= 0
     {
-        if {
-            kk.df = g.board[kk.di as usize] as i8;
-            kk.df
-        } == 0
-        {
+        kk.df = g.board[kk.di as usize];
+        if kk.df == 0 {
             i += 1;
+            if kk.s > 0 {
+                s.push(kk);
+            }
         } else {
-            i = g.rook_path[kk.si as usize][i as usize].nxt_dir_idx;
-        }
-        if wanted(kk) {
-            s.push(kk)
+            i = g.rook_path[kk.si as usize][i].nxt_dir_idx as usize;
+            if (kk.df < 0) != (kk.sf < 0) {
+                s.push(kk);
+            }
         }
     }
 }
 
 fn walk_bishop(g: &Game, kk: KK, s: &mut KKS) {
-    let mut i: i64 = 0;
+    let mut i: usize = 0;
     let mut kk = kk;
     while {
-        kk.di = g.bishop_path[kk.si as usize][i as usize].pos;
+        kk.di = g.bishop_path[kk.si as usize][i].pos;
         kk.di
     } >= 0
     {
-        if {
-            kk.df = g.board[kk.di as usize] as i8;
-            kk.df
-        } == 0
-        {
-            i += 1
+        kk.df = g.board[kk.di as usize];
+        if kk.df == 0 {
+            i += 1;
+            if kk.s > 0 {
+                s.push(kk);
+            }
         } else {
-            i = g.bishop_path[kk.si as usize][i as usize].nxt_dir_idx
+            i = g.bishop_path[kk.si as usize][i].nxt_dir_idx as usize;
+            if (kk.df < 0) != (kk.sf < 0) {
+                s.push(kk);
+            }
         }
-        if wanted(kk) {
-            s.push(kk)
-        };
     }
 }
 
 fn walk_king(g: &Game, kk: KK, s: &mut KKS) {
+    let mut i: usize = 0;
     let mut kk = kk;
-    for i in 0..(7 + 1) {
-        if {
-            kk.di = g.king_path[kk.si as usize][i as usize].pos;
-            kk.di
-        } < 0
-        {
-            break;
-        }
-        kk.df = g.board[kk.di as usize] as i8;
+    while i < 8 && {
+        //while {
+        kk.di = g.king_path[kk.si as usize][i].pos;
+        kk.di
+    } >= 0
+    {
+        kk.df = g.board[kk.di as usize];
         if wanted(kk) {
             s.push(kk);
         }
+        i += 1;
     }
 }
 
 fn walk_knight(g: &Game, kk: KK, s: &mut KKS) {
+    let mut i: usize = 0;
     let mut kk = kk;
-    for i in 0..(7 + 1) {
-        if {
-            kk.di = g.knight_path[kk.si as usize][i as usize].pos;
-            kk.di
-        } < 0
-        {
-            break;
-        }
-        kk.df = g.board[kk.di as usize] as i8;
+    while i < 8 && {
+        //while {
+        kk.di = g.knight_path[kk.si as usize][i].pos;
+        kk.di
+    } >= 0
+    {
+        kk.df = g.board[kk.di as usize];
         if wanted(kk) {
             s.push(kk);
         }
+        i += 1;
     }
 }
 
 // now we generate all possible ep captures -- before performing the actual move, we have to check ep_pos value
 fn walk_pawn(g: &Game, kk: KK, s: &mut KKS, gen_always_ep: bool) {
     let mut kk = kk;
-    let col_idx = (kk.sf + 1) / 2;
+    let col_idx = ((kk.sf + 1) / 2) as usize;
     for i in 0..2 {
+        // try the two possible captures
         if {
-            kk.di = g.pawn_path[col_idx as usize][kk.si as usize][i].pos;
+            kk.di = g.pawn_path[col_idx][kk.si as usize][i].pos;
             kk.di
         } >= 0
         {
-            kk.df = g.board[kk.di as usize] as i8;
-            let c: Color;
-            if kk.sf == W_PAWN as i8 {
-                c = COLOR_WHITE as Color
+            kk.df = g.board[kk.di as usize];
+            let c: Color = if kk.sf == W_PAWN {
+                COLOR_WHITE as Color
             } else {
-                c = COLOR_BLACK as Color
+                COLOR_BLACK as Color
             };
             debug_assert!(c == (kk.sf) as Color);
             if rows_to_go(kk.si, c) == 3
                 && (gen_always_ep || kk.di == g.pjm)
-                && kk.df == VOID_ID as i8
-                && g.board[(kk.di - kk.sf * 8) as usize] == -kk.sf as i64
+                && kk.df == VOID_ID
+                && g.board[(kk.di - kk.sf * 8) as usize] == -kk.sf
             {
                 // possible ep capture
                 s.push(kk);
             } else if capture(kk) {
                 if base_row(kk.di) {
-                    kk.promote_to = kk.sf * KNIGHT_ID as i8;
+                    kk.promote_to = kk.sf * KNIGHT_ID;
                     s.push(kk);
-                    kk.promote_to = kk.sf * QUEEN_ID as i8;
+                    kk.promote_to = kk.sf * QUEEN_ID;
                     s.push(kk);
                 } else {
                     s.push(kk);
@@ -1231,24 +1260,17 @@ fn walk_pawn(g: &Game, kk: KK, s: &mut KKS, gen_always_ep: bool) {
     }
     if kk.s >= 0 {
         for i in 2..4 {
-            if {
-                kk.di = g.pawn_path[col_idx as usize][kk.si as usize][i as usize].pos;
-                kk.di
-            } >= 0
-            {
-                if {
-                    kk.df = g.board[kk.di as usize] as i8;
-                    kk.df
-                } == 0
-                {
+            // the straight moves -- if destination is empty
+            kk.di = g.pawn_path[col_idx][kk.si as usize][i].pos;
+            if kk.di >= 0 {
+                kk.df = g.board[kk.di as usize];
+                if kk.df == 0 {
                     if base_row(kk.di) {
-                        kk.promote_to = kk.sf * KNIGHT_ID as i8;
+                        kk.promote_to = kk.sf * KNIGHT_ID;
                         s.push(kk);
-                        kk.promote_to = kk.sf * QUEEN_ID as i8;
-                        s.push(kk);
-                    } else {
-                        s.push(kk);
+                        kk.promote_to = kk.sf * QUEEN_ID;
                     }
+                    s.push(kk);
                 } else {
                     break;
                 }
@@ -1272,8 +1294,7 @@ fn plain_evaluate_board(g: &Game) -> i16 {
     let mut result: i16 = 0;
     for (p, f) in g.board.iter().enumerate() {
         // if f != VOID_ID -- does not increase performance
-        result += (FIGURE_VALUE[f.abs() as usize] as i16 + g.freedom[(6 + *f) as usize][p as usize])
-            as i16
+        result += (FIGURE_VALUE[f.unsigned_abs() as usize] + g.freedom[(6 + *f) as usize][p])
             * (signum(*f)) as i16;
     }
     if g.has_moved.contains(WK3) {
@@ -1318,7 +1339,7 @@ i64 alphaBeta( i64 alpha, i64 beta, i64 depthleft ) {
 
 fn _old_in_check(g: &Game, si: i8, col: Color) -> bool {
     let kk = KK {
-        si: si as i8,
+        si,
         //sf: signum(col as i64) as i8,
         sf: col as i8, // used by walk_pawn
         s: -1,
@@ -1328,35 +1349,35 @@ fn _old_in_check(g: &Game, si: i8, col: Color) -> bool {
     debug_assert!(kk.sf == col as i8);
     walk_bishop(g, kk, &mut s);
     if s.iter()
-        .any(|&it| it.df.abs() == BISHOP_ID as i8 || it.df.abs() == QUEEN_ID as i8)
+        .any(|&it| it.df.abs() == BISHOP_ID || it.df.abs() == QUEEN_ID)
     {
         return true;
     }
     s.clear();
     walk_rook(g, kk, &mut s);
     if s.iter()
-        .any(|&it| it.df.abs() == ROOK_ID as i8 || it.df.abs() == QUEEN_ID as i8)
+        .any(|&it| it.df.abs() == ROOK_ID || it.df.abs() == QUEEN_ID)
     {
         return true;
     }
     s.clear();
     walk_knight(g, kk, &mut s);
-    if s.iter().any(|&it| it.df.abs() == KNIGHT_ID as i8) {
+    if s.iter().any(|&it| it.df.abs() == KNIGHT_ID) {
         return true;
     }
     s.clear();
     walk_pawn(g, kk, &mut s, false);
-    if s.iter().any(|&it| it.df.abs() == PAWN_ID as i8) {
+    if s.iter().any(|&it| it.df.abs() == PAWN_ID) {
         return true;
     }
     s.clear();
     walk_king(g, kk, &mut s); // for which case do we really need this?
-    s.iter().any(|&it| it.df.abs() == KING_ID as i8)
+    s.iter().any(|&it| it.df.abs() == KING_ID)
 }
 
 fn in_check(g: &Game, si: i8, col: Color, check_king_attack: bool) -> bool {
     let kk = KK {
-        si: si as i8,
+        si,
         //sf: signum(col as i64) as i8,
         sf: col as i8, // used by walk_pawn
         s: -1,
@@ -1365,32 +1386,32 @@ fn in_check(g: &Game, si: i8, col: Color, check_king_attack: bool) -> bool {
     let mut s: Vec<KK> = Vec::with_capacity(16);
     debug_assert!(kk.sf == col as i8);
     walk_knight(g, kk, &mut s);
-    if s.iter().any(|&it| it.df.abs() == KNIGHT_ID as i8) {
+    if s.iter().any(|&it| it.df.abs() == KNIGHT_ID) {
         return true;
     }
     s.clear();
     walk_bishop(g, kk, &mut s);
     if s.iter()
-        .any(|&it| it.df.abs() == BISHOP_ID as i8 || it.df.abs() == QUEEN_ID as i8)
+        .any(|&it| it.df.abs() == BISHOP_ID || it.df.abs() == QUEEN_ID)
     {
         return true;
     }
     s.clear();
     walk_rook(g, kk, &mut s);
     if s.iter()
-        .any(|&it| it.df.abs() == ROOK_ID as i8 || it.df.abs() == QUEEN_ID as i8)
+        .any(|&it| it.df.abs() == ROOK_ID || it.df.abs() == QUEEN_ID)
     {
         return true;
     }
     s.clear();
     walk_pawn(g, kk, &mut s, false);
-    if s.iter().any(|&it| it.df.abs() == PAWN_ID as i8) {
+    if s.iter().any(|&it| it.df.abs() == PAWN_ID) {
         return true;
     }
     if check_king_attack {
         s.clear();
         walk_king(g, kk, &mut s);
-        if s.iter().any(|&it| it.df.abs() == KING_ID as i8) {
+        if s.iter().any(|&it| it.df.abs() == KING_ID) {
             return true;
         }
     }
@@ -1401,7 +1422,7 @@ fn queen_in_check(g: &Game, si: i8, col: Color) -> bool {
     // check if queen at si can be captured by pawn, knight, bishop, or rook.
     // this situation is dangerous, so depth increase makes sense.
     let kk = KK {
-        si: si as i8,
+        si,
         //sf: signum(col as i64) as i8,
         sf: col as i8, // used by walk_pawn
         s: -1,
@@ -1410,22 +1431,22 @@ fn queen_in_check(g: &Game, si: i8, col: Color) -> bool {
     let mut s: Vec<KK> = Vec::with_capacity(16);
     debug_assert!(kk.sf == col as i8);
     walk_knight(g, kk, &mut s);
-    if s.iter().any(|&it| it.df.abs() == KNIGHT_ID as i8) {
+    if s.iter().any(|&it| it.df.abs() == KNIGHT_ID) {
         return true;
     }
     s.clear();
     walk_bishop(g, kk, &mut s);
-    if s.iter().any(|&it| it.df.abs() == BISHOP_ID as i8) {
+    if s.iter().any(|&it| it.df.abs() == BISHOP_ID) {
         return true;
     }
     s.clear();
     walk_rook(g, kk, &mut s);
-    if s.iter().any(|&it| it.df.abs() == ROOK_ID as i8) {
+    if s.iter().any(|&it| it.df.abs() == ROOK_ID) {
         return true;
     }
     s.clear();
     walk_pawn(g, kk, &mut s, false);
-    if s.iter().any(|&it| it.df.abs() == PAWN_ID as i8) {
+    if s.iter().any(|&it| it.df.abs() == PAWN_ID) {
         return true;
     }
     false
@@ -1461,7 +1482,7 @@ fn in_check(game: &Game, square_index: usize, color: Color) -> bool {
 */
 
 fn king_pos(g: &Game, c: Color) -> i8 {
-    let k = KING_ID * c as i64;
+    let k = KING_ID * c as i8;
     for (i, f) in g.board.iter().enumerate() {
         if *f == k {
             return i as i8;
@@ -1500,11 +1521,11 @@ fn `+-?`(a, b: i64) -> i64  {
 // plus minus questionmark
 fn pmq(a: i64, b: i64) -> i64 {
     if a > KING_VALUE_DIV_2 as i64 {
-        return a + b;
+        a + b
     } else if a < -KING_VALUE_DIV_2 as i64 {
-        return a - b;
+        a - b
     } else {
-        return a;
+        a
     }
 }
 
@@ -1569,15 +1590,16 @@ fn abeta(
     let mut alpha: i64 = alpha_0; // mutable alpha
     let mut valid_move_found: bool = false; // can we move -- no checkmate or stalemate
     let mut time_break: bool = false;
-    let back: Board; // backup for debugging, so we can test if all our moves undo operations are correct
-    back = g.board; // test board integrity
+    // backup for debugging, so we can test if all our moves undo operations are correct
+    let back: Board = g.board; // test board integrity
+
     let v_depth = v_depth - V_RATIO;
-    let encoded_board = encode_board(&g, color);
+    let encoded_board = encode_board(g, color);
     let hash_pos = get_tte(g, encoded_board);
-    if hash_pos >= 0 {
+    if hash_pos > 0 {
         hash_res = g.tt[hash_pos as usize].res.clone(); // no way to avoid the clone() here
-                                                        // debug_assert!(hash_res.kks.len() > 0); // can be zero for checkmate or stalemate
-                                                        // we have the list of moves, and maybe the exact score, or a possible beta cutoff
+        // debug_assert!(hash_res.kks.len() > 0); // can be zero for checkmate or stalemate
+        // we have the list of moves, and maybe the exact score, or a possible beta cutoff
         debug_inc(&mut g.hash_succ);
         for i in (depth_0..(MAX_DEPTH + 1)).rev() {
             if hash_res.score[i].s != INVALID_SCORE {
@@ -1639,40 +1661,42 @@ fn abeta(
     let mut evaluation: i16 = LOWEST_SCORE;
     if depth_0 == 0 {
         // null move estimation for quiescence search
-        evaluation = plain_evaluate_board(&g) * color as i16 - old_list_len as i16;
+        evaluation = plain_evaluate_board(g) * color as i16 - old_list_len as i16;
         if evaluation as i64 >= beta {
             result.score = beta;
             debug_inc(&mut g.null_move_succ_1);
             return result;
         }
     }
-    if hash_pos < 0 {
+    if hash_pos == 0 {
         // generate the move list, including possible castlings and en passant moves
         let mut s: Vec<KK> = Vec::with_capacity(63);
-        let mut kk: KK = Default::default();
-        kk.s = 1; // generate all moves, not only capures
+        let mut kk: KK = KK {
+            s: 1, // generate all moves, not only capures
+            ..Default::default()
+        };
         for (si, sf) in g.board.iter().enumerate() {
             // source index, source figure
             if *sf != VOID_ID {
                 hash_res.pop_cnt += 1;
             }
-            if sf * color <= 0 {
+            if sf * color as i8 <= 0 {
                 continue;
             }
             kk.si = si as i8;
-            kk.sf = *sf as i8;
+            kk.sf = *sf;
             match sf.abs() {
-                PAWN_ID => walk_pawn(&g, kk, &mut s, true),
-                KNIGHT_ID => walk_knight(&g, kk, &mut s),
-                BISHOP_ID => walk_bishop(&g, kk, &mut s),
-                ROOK_ID => walk_rook(&g, kk, &mut s),
+                PAWN_ID => walk_pawn(g, kk, &mut s, true),
+                KNIGHT_ID => walk_knight(g, kk, &mut s),
+                BISHOP_ID => walk_bishop(g, kk, &mut s),
+                ROOK_ID => walk_rook(g, kk, &mut s),
                 QUEEN_ID => {
-                    walk_bishop(&g, kk, &mut s);
-                    walk_rook(&g, kk, &mut s);
+                    walk_bishop(g, kk, &mut s);
+                    walk_rook(g, kk, &mut s);
                     hash_res.queen_pos = kk.si
                 }
                 KING_ID => {
-                    walk_king(&g, kk, &mut s);
+                    walk_king(g, kk, &mut s);
                     hash_res.king_pos = kk.si
                 }
                 _ => {}
@@ -1687,26 +1711,21 @@ fn abeta(
         }
         debug_assert!(COLOR_WHITE == 1 && COLOR_BLACK == -1);
         debug_assert!(COLOR_WHITE == color || COLOR_BLACK == color);
-        let sign = color;
+        let sign = color as i8;
         let offset = (color == COLOR_BLACK) as usize * 56;
         if color == COLOR_WHITE && g.board[3] == W_KING
             || color == COLOR_BLACK && g.board[59] == B_KING
         {
-            kk.df = VOID_ID as i8;
-            kk.sf = (W_KING * sign) as i8;
-            if g.board[offset + 0] == W_ROOK * sign
-                && g.board[offset + 1] == VOID_ID
-                && g.board[offset + 2] == VOID_ID
-            {
+            kk.df = VOID_ID;
+            kk.sf = W_KING * sign;
+            // Kingside castling
+            if g.board[offset..offset + 3] == [W_ROOK * sign, VOID_ID, VOID_ID] {
                 kk.di = offset as i8 + 1;
                 kk.si = offset as i8 + 3;
                 s.push(kk);
             }
-            if g.board[offset + 7] == W_ROOK * sign
-                && g.board[offset + 4] == VOID_ID
-                && g.board[offset + 5] == VOID_ID
-                && g.board[offset + 6] == VOID_ID
-            {
+            // Queenside castling
+            if g.board[offset + 4..offset + 8] == [VOID_ID, VOID_ID, VOID_ID, W_ROOK * sign] {
                 kk.di = offset as i8 + 5;
                 kk.si = offset as i8 + 3;
                 s.push(kk);
@@ -1758,27 +1777,28 @@ fn abeta(
             el.eval_depth = -3; // mark as unevaluated -- actually -1, but -3 works as special marker
             if cfg!(debug_assertions) {
                 if base_row(el.di) && is_a_pawn(el.sf) {
-                    debug_assert!([QUEEN_ID as i8, KNIGHT_ID as i8].contains(&el.promote_to.abs()));
+                    debug_assert!([QUEEN_ID, KNIGHT_ID].contains(&el.promote_to.abs()));
                 } else {
                     debug_assert!(el.promote_to == 0);
                 }
             }
-            el.s = FIGURE_VALUE[el.promote_to.abs() as usize] + FIGURE_VALUE[el.df.abs() as usize]
-                - FIGURE_VALUE[el.sf.abs() as usize] / 2 * (el.df != 0) as i16
-                + g.freedom[(6 + el.sf) as usize][(0 + el.di) as usize]
-                - g.freedom[(6 + el.sf) as usize][(0 + el.si) as usize];
+            el.s = FIGURE_VALUE[el.promote_to.unsigned_abs() as usize]
+                + FIGURE_VALUE[el.df.unsigned_abs() as usize]
+                - FIGURE_VALUE[el.sf.unsigned_abs() as usize] / 2 * (el.df != 0) as i16
+                + g.freedom[(6 + el.sf) as usize][(el.di) as usize]
+                - g.freedom[(6 + el.sf) as usize][(el.si) as usize];
         }
         let h = s.len();
         ixsort(&mut s, h);
         debug_assert!(is_sorted(&s, s.len()));
         s.shrink_to_fit();
         hash_res.kks = s;
-        debug_assert!(hash_res.kks.len() > 0);
+        debug_assert!(!hash_res.kks.is_empty());
     }
     if CHECK_EXTEND && !hash_res.tested_for_check && depth_0 > 1 {
         hash_res.in_check = (hash_res.queen_pos >= 0
-            && queen_in_check(&g, hash_res.queen_pos, color))
-            || in_check(&g, hash_res.king_pos, color, false);
+            && queen_in_check(g, hash_res.queen_pos, color))
+            || in_check(g, hash_res.king_pos, color, false);
         // this field is optional information
         hash_res.tested_for_check = true;
     }
@@ -1801,7 +1821,7 @@ fn abeta(
         }
         lift(&mut alpha, evaluation as i64);
     }
-    result.control = hash_res.control.clone();
+    result.control = hash_res.control;
     let mut hash_res_kks_high: usize = 0; // the number of newly evaluated positions, we sort only this range.
     result.score = evaluation as i64; // LOWEST_SCORE for depth_0 > 0
     debug_assert!(depth_0 == 0 || result.score == LOWEST_SCORE as i64);
@@ -1815,7 +1835,7 @@ fn abeta(
         debug_assert!(el.s != IGNORE_MARKER_LOW_INT16);
         debug_assert!(g.board[el.si as usize] != VOID_ID);
         //hash_res_kks_high += 1; // the number of up to date positions, which we have to sort later
-        if depth_0 == 0 && el.df == VOID_ID as i8 {
+        if depth_0 == 0 && el.df == VOID_ID {
             // skip non-captures in quiescence search
             continue;
         }
@@ -1828,10 +1848,11 @@ fn abeta(
                     eval_cnt, hash_res_kks_high, el.eval_depth
                 );
                 //debug_assert!(eval_cnt as usize + 1 == hash_res_kks_high); // no, not always
-                if false && cfg!(feature = "salewskiChessDebug") {
+                if false {
+                    // && cfg!(feature = "salewskiChessDebug") {
                     println!("{:?}", hash_res.kks);
                 }
-                assert!(valid_move_found == true);
+                assert!(valid_move_found);
                 time_break = true;
                 break;
             }
@@ -1851,7 +1872,7 @@ fn abeta(
             let elsieldi = el.si - el.di;
             let little_castling = is_a_kingelsf && elsieldi == 2; // castling candidates
             let big_castling = is_a_kingelsf && elsieldi == -2;
-            let en_passant = is_a_pawnelsf && el.df == VOID_ID as i8 && odd(elsieldi); // move is an eP capture candidate
+            let en_passant = is_a_pawnelsf && el.df == VOID_ID && odd(elsieldi); // move is an eP capture candidate
             if little_castling && (g.has_moved.contains(el.si) || g.has_moved.contains(el.si - 3)) {
                 // we always generate castling moves but
                 continue;
@@ -1871,6 +1892,7 @@ fn abeta(
                 // EXTEND tests are not very cheap, so do then only in higher levels
                 // the following code is ordered so that v_depth_inc never is decreased, avoiding max() or lift() calls.
                 if false && SELECT_EXTEND {
+                    // && SELECT_EXTEND {
                     // makes no sense in endgame
                     sdi = [0, 0, 0, 0, 0, 1, 1]; // source figure depth increase -- increase depth when king or queen is moved
                     ddi = [0, 0, 1, 1, 1, 2, 0]; // destination figure depth increase -- increase depth for fat captures
@@ -1880,23 +1902,24 @@ fn abeta(
                     v_depth_inc = 1; // not 2, because sdi gives already +1
                 }
                 if CAPTURE_EXTEND || EQUAL_CAPTURE_EXTEND || LARGE_CAPTURE_EXTEND {
-                    if el.df != VOID_ID as i8 {
+                    if el.df != VOID_ID {
                         if CAPTURE_EXTEND {
-                            assert!(false); // covered by ddi array already
+                            debug_assert!(false); // covered by ddi array already
                             v_depth_inc = 2;
                         }
                         if EQUAL_CAPTURE_EXTEND || LARGE_CAPTURE_EXTEND {
-                            let immediate_gain = FIGURE_VALUE[el.df.abs() as usize]
-                                - FIGURE_VALUE[el.sf.abs() as usize];
+                            let immediate_gain = FIGURE_VALUE[el.df.unsigned_abs() as usize]
+                                - FIGURE_VALUE[el.sf.unsigned_abs() as usize];
                             if LARGE_CAPTURE_EXTEND {
-                                assert!(false); // bad idea
+                                debug_assert!(false); // bad idea
                                 if immediate_gain.abs() > PAWN_VALUE {
                                     v_depth_inc = 4;
                                 }
                             }
                             if EQUAL_CAPTURE_EXTEND && depth_0 > 1 {
                                 if immediate_gain.abs() < 25 {
-                                    if true || g.move_chain[cup as usize] != el.di {
+                                    {
+                                        // if true || g.move_chain[cup as usize] != el.di {
                                         // only when not a re-capture
                                         v_depth_inc = 4;
                                     }
@@ -1926,7 +1949,7 @@ fn abeta(
                         v_depth_inc = 4 + (cup == 2) as i64 * 4;
                     }
                 }
-                if PROMOTE_EXTEND && el.promote_to.abs() != VOID_ID as i8 {
+                if PROMOTE_EXTEND && el.promote_to.abs() != VOID_ID {
                     v_depth_inc = 4;
                 }
                 if RANGE_EXTEND {
@@ -1945,13 +1968,13 @@ fn abeta(
                 result.score = KING_VALUE as i64; // + 1 // or high(int16)
                 hash_res.state = STATE_CAN_CAPTURE_KING;
                 hash_res.score[MAX_DEPTH].s = result.score as i16; // MAX_DEPTH, as it is the final score
-                debug_assert!(hash_pos < 0); // once stored, we just retrieve it
+                debug_assert!(hash_pos == 0); // once stored, we just retrieve it
                 put_tte(g, encoded_board, hash_res, depth_0 as i64, hash_pos); // store this for a fast return next time
                 return result;
             }
             g.board[el.si as usize] = VOID_ID; // the basic movement
-            g.board[el.di as usize] = el.sf as i64;
-            let hmback = g.has_moved.clone(); // backup
+            g.board[el.di as usize] = el.sf;
+            let hmback = g.has_moved; // backup
             g.has_moved.insert(el.si); // may be a king or rook move, so castling is forbidden in future
             if little_castling {
                 // small rochade
@@ -1972,7 +1995,7 @@ fn abeta(
             } else if en_passant {
                 g.board[(el.di as i64 - color * 8) as usize] = VOID_ID;
             } else if is_a_pawnelsf && base_row(el.di) {
-                g.board[el.di as usize] = el.promote_to as i64;
+                g.board[el.di as usize] = el.promote_to;
             }
             let pawn_jump = is_a_pawnelsf && (elsieldi == 16 || elsieldi == -16);
             if pawn_jump {
@@ -1986,7 +2009,7 @@ fn abeta(
             let rep_test_needed = !only_captures && hash_res.pop_cnt < 32 - 4; // also skip in early game state
             if rep_test_needed {
                 // this is expensive in endgame, when non-captures dominate; but unavoidable?
-                new_state = encode_board(&g, opp_color(color)); // this is the new board state after a piece is moved
+                new_state = encode_board(g, opp_color(color)); // this is the new board state after a piece is moved
                 let reps = g.history.entry(new_state).or_insert(0);
                 *reps += 1; // push()
                 num_reps = *reps;
@@ -1994,11 +2017,14 @@ fn abeta(
                 new_state = Default::default(); // only to satisfy the compiler
             }
             debug_assert!(
-                v_depth_inc + sdi[el.sf.abs() as usize] + ddi[el.df.abs() as usize] <= 10
+                v_depth_inc
+                    + sdi[el.sf.unsigned_abs() as usize]
+                    + ddi[el.df.unsigned_abs() as usize]
+                    <= 10
             );
             debug_assert!(v_depth_inc <= 8);
             let to_100_bak = g.to_100;
-            if is_a_pawnelsf || el.df != VOID_ID as i8 {
+            if is_a_pawnelsf || el.df != VOID_ID {
                 // test for castlings as well?
                 g.to_100 = 0;
             } else {
@@ -2007,7 +2033,10 @@ fn abeta(
             m = abeta(
                 g,
                 opp_color(color),
-                v_depth + v_depth_inc + sdi[el.sf.abs() as usize] + ddi[el.df.abs() as usize],
+                v_depth
+                    + v_depth_inc
+                    + sdi[el.sf.unsigned_abs() as usize]
+                    + ddi[el.df.unsigned_abs() as usize],
                 cup + 1,
                 -beta,
                 -alpha,
@@ -2049,10 +2078,10 @@ fn abeta(
             }
             g.has_moved = hmback; // reset board state
             g.to_100 = to_100_bak;
-            g.board[el.di as usize] = el.df as i64;
-            g.board[el.si as usize] = el.sf as i64;
+            g.board[el.di as usize] = el.df;
+            g.board[el.si as usize] = el.sf;
             if en_passant {
-                g.board[(el.di as i64 - color * 8) as usize] = -el.sf as i64;
+                g.board[(el.di as i64 - color * 8) as usize] = -el.sf;
             }
             if little_castling {
                 // small rochade
@@ -2107,9 +2136,9 @@ fn abeta(
         hash_res_kks_high += 1; // the number of up to date positions, which we have to sort later
     }
     if depth_0 > 0 && !valid_move_found {
-        if in_check(&g, hash_res.king_pos, color, false) {
+        if in_check(g, hash_res.king_pos, color, false) {
             result.state = STATE_CHECKMATE;
-            result.score = -KING_VALUE as i64 + cup as i64 - 1;
+            result.score = -KING_VALUE as i64 + cup - 1;
         } else {
             result.score = 0;
             result.state = STATE_STALEMATE;
@@ -2164,7 +2193,7 @@ fn _str_2_board_pos(s: String) -> Position {
     //debug_assert!(s1 in {'1' .. '8'})
     let c = 7 - (s0 as i8 - 'a' as i8);
     let r = s1 as i8 - '1' as i8;
-    return c + r * 8;
+    c + r * 8
 }
 
 fn _check_mate_in(score: i64) -> i64 {
@@ -2195,8 +2224,8 @@ fn alphabeta(g: &mut Game, color: Color, depth: i64, ep_pos: i8) -> Move {
     );
     //when defined(salewskiChessDebug):
     if true {
-        if false || cfg!(feature = "salewskiChessDebug") {
-            write_statistics(&g);
+        if cfg!(feature = "salewskiChessDebug") {
+            write_statistics(g);
         }
         //echo result
     }
@@ -2212,23 +2241,23 @@ const FLAG_PROCAP: i32 = 4;
 pub fn do_move(g: &mut Game, p0: Position, p1: Position, silent: bool) -> i32 {
     p(g.board);
     let mut result: i32 = 0;
-    if !is_void_at(&g, p1) {
+    if !is_void_at(g, p1) {
         result = FLAG_CAPTURE;
     }
     if !silent {
         g.has_moved.insert(p0 as usize);
         g.pjm = -1;
-        if is_a_pawn_at(&g, p0) && (p0 - p1).abs() == 16 {
+        if is_a_pawn_at(g, p0) && (p0 - p1).abs() == 16 {
             g.pjm = (p0 + p1) / 2;
         }
-        if is_a_pawn_at(&g, p0) || !is_void_at(&g, p1) {
+        if is_a_pawn_at(g, p0) || !is_void_at(g, p1) {
             // test for castlings as well?
             g.to_100 = 0;
         } else {
             g.to_100 += 1;
         }
     }
-    if (p1 - p0).abs() == 2 && is_a_king_at(&g, p0) {
+    if (p1 - p0).abs() == 2 && is_a_king_at(g, p0) {
         if col(p1) == 1 {
             g.board[p0 as usize - 1] = g.board[p0 as usize - 3];
             g.board[p0 as usize - 3] = VOID_ID;
@@ -2236,31 +2265,31 @@ pub fn do_move(g: &mut Game, p0: Position, p1: Position, silent: bool) -> i32 {
             g.board[p0 as usize + 1] = g.board[p0 as usize + 4];
             g.board[p0 as usize + 4] = VOID_ID;
         }
-    } else if base_row(p1) && is_a_pawn_at(&g, p0) {
+    } else if base_row(p1) && is_a_pawn_at(g, p0) {
         g.board[p0 as usize] *= QUEEN_ID;
         result = if result == FLAG_CAPTURE {
             FLAG_PROCAP
         } else {
             FLAG_PROMOTION
         }
-    } else if is_a_pawn_at(&g, p0) && is_void_at(&g, p1) && odd(p1 - p0) {
+    } else if is_a_pawn_at(g, p0) && is_void_at(g, p1) && odd(p1 - p0) {
         result = FLAG_EP;
-        g.board[(p1 as i64 - g.board[p0 as usize] * 8) as usize] = VOID_ID;
+        g.board[(p1 - g.board[p0 as usize] * 8) as usize] = VOID_ID;
     }
     g.board[p1 as usize] = g.board[p0 as usize];
     g.board[p0 as usize] = VOID_ID;
     if !silent {
-        if is_a_pawn_at(&g, p1) || result != FLAG_PLAIN {
+        if is_a_pawn_at(g, p1) || result != FLAG_PLAIN {
             g.history.clear();
         } else {
-            let new_state = encode_board(&g, signum(g.board[p1 as usize]) as Color);
+            let new_state = encode_board(g, signum(g.board[p1 as usize]) as Color);
             *g.history.entry(new_state).or_insert(0) += 1;
         }
     }
     //when defined(salewskiChessDebug):
     if true {
         if !silent {
-            g.debug_list.push(move_to_str(&g, p0, p1, result));
+            g.debug_list.push(move_to_str(g, p0, p1, result));
             //println!("--");
         }
     }
@@ -2270,32 +2299,37 @@ pub fn do_move(g: &mut Game, p0: Position, p1: Position, silent: bool) -> i32 {
 }
 
 pub fn tag(g: &mut Game, si: i64) -> KKS {
-    let mut kk: KK = Default::default();
-    kk.sf = g.board[si as usize] as i8;
+    //let mut kk: KK = Default::default();
+    //kk.sf = g.board[si as usize];
+    let mut kk: KK = KK {
+        sf: g.board[si as usize],
+        ..Default::default()
+    };
     let color = signum(kk.sf as i64) as Color;
     kk.si = si as i8;
     kk.s = 1; // generate all moves, not only captures
     let mut s: Vec<KK> = Vec::with_capacity(32);
-    match kk.sf.abs() as i64 {
-        PAWN_ID => walk_pawn(&g, kk, &mut s, false),
-        KNIGHT_ID => walk_knight(&g, kk, &mut s),
-        BISHOP_ID => walk_bishop(&g, kk, &mut s),
-        ROOK_ID => walk_rook(&g, kk, &mut s),
+    match kk.sf.abs() {
+        PAWN_ID => walk_pawn(g, kk, &mut s, false),
+        KNIGHT_ID => walk_knight(g, kk, &mut s),
+        BISHOP_ID => walk_bishop(g, kk, &mut s),
+        ROOK_ID => walk_rook(g, kk, &mut s),
         QUEEN_ID => {
-            walk_bishop(&g, kk, &mut s);
-            walk_rook(&g, kk, &mut s)
+            walk_bishop(g, kk, &mut s);
+            walk_rook(g, kk, &mut s)
         }
-        KING_ID => walk_king(&g, kk, &mut s),
+        KING_ID => walk_king(g, kk, &mut s),
         _ => {}
     }
     if si == 3 || si == 3 + 7 * 8 {
         const // king, void, void, void, rook, kingDelta+2
       Q: [[usize; 6]; 2] = [[3, 2, 1, 1, 0, 0], [3, 4, 5, 6, 7, 4]];
-        let k = W_KING * color;
-        let r = W_ROOK * color;
-        for i in 0..(1 + 1) {
+        let k = W_KING * color as i8;
+        let r = W_ROOK * color as i8;
+        //for i in 0..(1 + 1) {
+        for mut q in Q {
             // castlings both sides
-            let mut q = Q[i];
+            //let mut q = Q[i];
             if color == COLOR_BLACK {
                 for j in 0..(4 + 1) {
                     q[j as usize] += 7 * 8;
@@ -2309,9 +2343,9 @@ pub fn tag(g: &mut Game, si: i64) -> KKS {
                 && !g.has_moved.contains(q[0])
                 && !g.has_moved.contains(q[4])
             {
-                if !(in_check(&g, q[0] as i8, color, true)
-                    || in_check(&g, q[1] as i8, color, true)
-                    || in_check(&g, q[2] as i8, color, true))
+                if !(in_check(g, q[0] as i8, color, true)
+                    || in_check(g, q[1] as i8, color, true)
+                    || in_check(g, q[2] as i8, color, true))
                 {
                     kk.di = (q[0] + q[5] - 2) as i8;
                     s.push(kk);
@@ -2322,13 +2356,13 @@ pub fn tag(g: &mut Game, si: i64) -> KKS {
     let backup = g.board;
     for el in &mut s {
         do_move(g, si as i8, el.di, true);
-        if in_check(&g, king_pos(&g, color), color, true) {
+        if in_check(g, king_pos(g, color), color, true) {
             el.s = 0
         }
         g.board = backup;
     }
     s.retain(|&el| el.s != 0);
-    return s;
+    s
 }
 
 pub fn move_is_valid2(g: &mut Game, si: i64, di: i64) -> bool {
@@ -2347,7 +2381,7 @@ fn row_str(c: Col) -> char {
 }
 
 pub fn get_board(g: &Game) -> Board {
-    return g.board;
+    g.board
 }
 
 // call this after do_move()
@@ -2358,7 +2392,7 @@ pub fn move_to_str(g: &Game, si: Position, di: Position, flag: i32) -> String {
         if g.board[di as usize].abs() == KING_ID && (di - si).abs() == 2 {
             result = String::from(if col(di) == 1 { "o-o" } else { "o-o-o" });
         } else {
-            result = String::from(FIG_STR[g.board[di as usize].abs() as usize]);
+            result = String::from(FIG_STR[g.board[di as usize].unsigned_abs() as usize]);
             result.push(col_str(col(si)));
             result.push(row_str(row(si)));
             result.push(if flag == FLAG_CAPTURE || flag == FLAG_PROCAP {
@@ -2373,8 +2407,8 @@ pub fn move_to_str(g: &Game, si: Position, di: Position, flag: i32) -> String {
             }
         }
         if in_check(
-            &g,
-            king_pos(&g, (-signum(g.board[di as usize])) as Color),
+            g,
+            king_pos(g, (-signum(g.board[di as usize])) as Color),
             (-signum(g.board[di as usize])) as Color,
             true,
         ) {
@@ -2389,16 +2423,16 @@ pub fn move_to_str(g: &Game, si: Position, di: Position, flag: i32) -> String {
 pub fn _m_2_str(g: &Game, si: Position, di: Position) -> String {
     let mut result: String;
     let mut flag: i32 = 0;
-    if !is_void_at(&g, di) {
+    if !is_void_at(g, di) {
         flag = FLAG_CAPTURE;
     }
-    if base_row(di) && is_a_pawn_at(&g, si) {
+    if base_row(di) && is_a_pawn_at(g, si) {
         flag = if flag == FLAG_CAPTURE {
             FLAG_PROCAP
         } else {
             FLAG_PROMOTION
         }
-    } else if is_a_pawn_at(&g, si) && is_void_at(&g, di) && odd(di - si) {
+    } else if is_a_pawn_at(g, si) && is_void_at(g, di) && odd(di - si) {
         flag = FLAG_EP
     }
     if true {
@@ -2406,7 +2440,7 @@ pub fn _m_2_str(g: &Game, si: Position, di: Position) -> String {
         if g.board[di as usize].abs() == KING_ID && (di - si).abs() == 2 {
             result = String::from(if col(di) == 1 { "o-o" } else { "o-o-o" });
         } else {
-            result = String::from(FIG_STR[g.board[si as usize].abs() as usize]);
+            result = String::from(FIG_STR[g.board[si as usize].unsigned_abs() as usize]);
             result.push(col_str(col(si)));
             result.push(row_str(row(si)));
             result.push(if flag == FLAG_CAPTURE || flag == FLAG_PROCAP {
@@ -2441,7 +2475,7 @@ fn setup_endgame(g: &mut Game) -> bool {
             b[(1 + signum(*f as i64)) as usize] = i as i64
         }
     }
-    if p[(ARRAY_BASE_6 + W_PAWN as i64) as usize] + p[(ARRAY_BASE_6 + B_PAWN as i64) as usize] > 0 {
+    if p[(ARRAY_BASE_6 + W_PAWN) as usize] + p[(ARRAY_BASE_6 + B_PAWN) as usize] > 0 {
         return false;
     }
     if h[0] > 3 || h[2] > 3 {
@@ -2484,7 +2518,7 @@ fn setup_endgame(g: &mut Game) -> bool {
             }
         }
     }
-    return true;
+    true
 }
 
 pub fn reply(g: &mut Game) -> Move {
@@ -2499,7 +2533,7 @@ pub fn reply(g: &mut Game) -> Move {
     //println!("{:?}", g.freedom);
     if cfg!(feature = "salewskiChessDebug") {
         for i in 0..13 {
-            println!("");
+            println!();
             pf(g.freedom[i]);
         }
     }
@@ -2520,7 +2554,7 @@ pub fn reply(g: &mut Game) -> Move {
     g.time_4 = Duration::MAX;
     while depth < MAX_DEPTH {
         depth += 1;
-        result = alphabeta(g, color as i64, depth as i64, g.pjm);
+        result = alphabeta(g, color, depth as i64, g.pjm);
         if result.score != LOWEST_SCORE as i64 {
             move_result = result;
             g.time_4 = Duration::from_secs_f32(g.secs_per_move * 5.0);
@@ -2543,7 +2577,7 @@ pub fn reply(g: &mut Game) -> Move {
             break;
         }
     }
-    return result;
+    result
 }
 
 fn board_pos(col: usize, row: usize) -> usize {
@@ -2569,17 +2603,17 @@ fn _set_board_from_string(g: &mut Game, f: FigureID, s: String) {
 fn _print(g: &Game) {
     for (p, f) in g.board.iter().enumerate() {
         if p % 8 == 0 {
-            println!("");
+            println!();
         }
         if *f >= 0 {
-            print!("{}", ' ');
+            print!(" ");
         }
-        print!("{}{}{}{}", f, "|", p, ' ');
+        print!("{}|{} ", f, p);
         if p < 10 {
-            print!("{}", ' ')
+            print!(" ")
         }
     }
-    println!("");
+    println!();
 }
 
 /*
@@ -2647,4 +2681,4 @@ when false:
   set_board(B_QUEEN, "E3")
 
 */
-// 2647 lines 432 as
+// 2657 lines 352 as
