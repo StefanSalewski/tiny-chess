@@ -1,7 +1,7 @@
 [package]
 name = "tiny-chess"
-version = "0.1.0"
-edition = "2021"
+version = "0.3.0"
+edition = "2024"
 
 [dependencies]
 mpsc = "*"
@@ -19,6 +19,11 @@ env_logger = { version = "0.10", default-features = false, features = [
     "auto-color",
     "humantime",
 ] }
+
+[profile.dev]
+opt-level = 3
+
+#[profile.release]
 
 [features]
 salewskiChessDebug = []

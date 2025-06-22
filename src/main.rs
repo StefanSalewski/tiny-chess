@@ -1,5 +1,5 @@
 // Plain egui frontend for the tiny Salewski chess engine
-// v 0.2 -- 01-OCT-2024
+// v 0.3 -- 22-JUN-2025
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 
@@ -9,7 +9,7 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
 use eframe::egui;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 //use std::time::Duration;
 
@@ -249,14 +249,14 @@ impl eframe::App for MyApp {
                 self.state = STATE_UZ;
                 return;
             }
-            let flag = engine::do_move(&mut self.game.lock().unwrap(), h as i8, p1 as i8, false);
+            let flag = engine::do_move(&mut self.game.lock().unwrap(), h as i8, p1, false);
             self.tagged = [0; 64];
             self.tagged[h as usize] = 2;
             self.tagged[p1 as usize] = 2;
             if self.rotated {
                 self.tagged.reverse();
             }
-            self.msg = engine::move_to_str(&mut self.game.lock().unwrap(), h as i8, p1 as i8, flag);
+            self.msg = engine::move_to_str(&self.game.lock().unwrap(), h as i8, p1, flag);
             self.state = STATE_UZ;
         } else if self.state == STATE_U2 {
             self.state = STATE_U3;
@@ -284,7 +284,7 @@ impl eframe::App for MyApp {
                         false,
                     );
                     self.msg = engine::move_to_str(
-                        &mut self.game.lock().unwrap(),
+                        &self.game.lock().unwrap(),
                         m.src as i8,
                         m.dst as i8,
                         flag,

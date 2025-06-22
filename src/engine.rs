@@ -1,7 +1,7 @@
 // cargo clippy -- -A clippy::collapsible_if -A unreachable_code -A dead_code -A clippy::upper_case_acronyms -A clippy::out_of_bounds_indexing -A clippy::overly_complex_bool_expr -A clippy::too_many_arguments -A clippy::assertions_on_constants
 //
 // The Salewski Chess Engine -- ported from Nim to Rust as a tiny excercise while learning the Rust language
-// v 0.2.1 -- 15-JUN-2025
+// v 0.3.0 -- 21-JUN-2025
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 //
@@ -585,6 +585,28 @@ struct Guide1 {
     si: i8,
     di: i8,
     promote_to: i8,
+}
+
+// evaluate agility of our pieces. New for release 0.3!
+fn ev_board(kks: &KKS, mut pop: [i64; 64]) -> i64 {
+    let mut res: i64 = 0;
+    for el in kks {
+        pop[el.si as usize] += 1;
+    }
+    for i in pop {
+        debug_assert!(i >= 0);
+        res += match i {
+            0 => 0, // empty square
+            // 1 => -3, // a piece that can't move
+            // 2 => 0, // 1 .. 28 possible moves
+            // 3 => 3,
+            // 4 => 6,
+            val @ 1..5 => val * 3 - 6,  // -3, 0, 3, 6
+            val @ 5..13 => val * 2 - 2, // 8, 10, 12, .., 22
+            val => 10 + val,            // 23, 24, ..
+        }
+    }
+    res / 2
 }
 
 #[derive(Copy, Clone, Default)]
@@ -1291,13 +1313,42 @@ pub struct Move {
 
 // result is for White
 fn plain_evaluate_board(g: &Game) -> i16 {
+    let mut a = [0; 13];
     let mut result: i16 = 0;
     for (p, f) in g.board.iter().enumerate() {
-        // if f != VOID_ID -- does not increase performance
+        a[(6 + *f) as usize] += 1;
         result += (FIGURE_VALUE[f.unsigned_abs() as usize] + g.freedom[(6 + *f) as usize][p])
             * (signum(*f)) as i16;
     }
+
+    // it is good to have a pair of knight, bishop, rook, and to have a few pawns left. New for v 0.3!
+    for i in &a[7..13] {
+        // while pieces
+        if *i > 1 {
+            result += 10
+        };
+    }
+    if a[7] == 0 {
+        // white pawns
+        result -= 50;
+    } else if a[7] == 1 {
+        result -= 10;
+    }
+    for i in &a[0..6] {
+        // black pieces
+        if *i > 1 {
+            result -= 10
+        };
+    }
+    if a[5] == 0 {
+        // black pawns
+        result -= 50;
+    } else if a[5] == 1 {
+        result -= 10;
+    }
+
     if g.has_moved.contains(WK3) {
+        // when white has moved king or rooks, we can't castle any more
         result -= 4;
     } else {
         if g.has_moved.contains(WR0) {
@@ -1481,6 +1532,7 @@ fn in_check(game: &Game, square_index: usize, color: Color) -> bool {
 }
 */
 
+/*
 fn king_pos(g: &Game, c: Color) -> i8 {
     let k = KING_ID * c as i8;
     for (i, f) in g.board.iter().enumerate() {
@@ -1490,6 +1542,17 @@ fn king_pos(g: &Game, c: Color) -> i8 {
     }
     debug_assert!(false);
     0
+}
+*/
+
+fn king_pos(g: &Game, c: Color) -> i8 {
+    let k = KING_ID * c as i8;
+    for (i, f) in g.board.iter().enumerate() {
+        if *f == k {
+            return i as i8;
+        }
+    }
+    unreachable!("King of color {:?} not found on board", c);
 }
 
 const V_RATIO: i64 = 8;
@@ -1578,7 +1641,7 @@ fn abeta(
     }
     debug_assert!(cup >= 0);
     debug_assert!(std::mem::size_of::<KK>() == 8);
-    debug_assert!(old_list_len >= 0);
+    //debug_assert!(old_list_len >= 0);
     debug_assert!((-1..63).contains(&ep_pos));
     let mut hash_res: HashResult;
     let mut sdi: [i64; 7] = [0; 7]; // source figure depth increase
@@ -1659,6 +1722,7 @@ fn abeta(
     */
 
     let mut evaluation: i16 = LOWEST_SCORE;
+    let mut pop: [i64; 64] = [0; 64];
     if depth_0 == 0 {
         // null move estimation for quiescence search
         evaluation = plain_evaluate_board(g) * color as i16 - old_list_len as i16;
@@ -1681,10 +1745,11 @@ fn abeta(
                 hash_res.pop_cnt += 1;
             }
             if sf * color as i8 <= 0 {
-                continue;
+                continue; // empty square or piece of opponent
             }
             kk.si = si as i8;
             kk.sf = *sf;
+            pop[si] = 1;
             match sf.abs() {
                 PAWN_ID => walk_pawn(g, kk, &mut s, true),
                 KNIGHT_ID => walk_knight(g, kk, &mut s),
@@ -1732,45 +1797,6 @@ fn abeta(
             }
         }
 
-        /*
-        kk.df = VOID_ID as i8; // for all 4 types of castling
-        if color == COLOR_WHITE && g.board[3] == W_KING {
-            if g.board[0] == W_ROOK && g.board[1] == VOID_ID && g.board[2] == VOID_ID {
-                kk.di = 1;
-                kk.si = 3;
-                kk.sf = W_KING as i8;
-                s.push(kk);
-            }
-            if g.board[7] == W_ROOK
-                && g.board[4] == VOID_ID
-                && g.board[5] == VOID_ID
-                && g.board[6] == VOID_ID
-            {
-                kk.di = 5;
-                kk.si = 3;
-                kk.sf = W_KING as i8;
-                s.push(kk);
-            }
-        }
-        if color == COLOR_BLACK && g.board[59] == B_KING {
-            if g.board[56] == B_ROOK && g.board[57] == VOID_ID && g.board[58] == VOID_ID {
-                kk.di = 57;
-                kk.si = 59;
-                kk.sf = B_KING as i8;
-                s.push(kk);
-            }
-            if g.board[63] == B_ROOK
-                && g.board[60] == VOID_ID
-                && g.board[61] == VOID_ID
-                && g.board[62] == VOID_ID
-            {
-                kk.di = 61;
-                kk.si = 59;
-                kk.sf = B_KING as i8;
-                s.push(kk);
-            }
-        }
-        */
         for el in &mut s {
             debug_assert!(g.board[el.si as usize] != VOID_ID);
             // guessed ratings of the moves
@@ -1803,11 +1829,17 @@ fn abeta(
         hash_res.tested_for_check = true;
     }
 
+    //let hash_res_kks_len =
+    //    (hash_res.kks.len() as i64 + attacs + hash_res.control.0.count_ones() as i64) as i16;
+
     let hash_res_kks_len =
-        (hash_res.kks.len() as i64 + attacs + hash_res.control.0.count_ones() as i64) as i16;
+        (ev_board(&hash_res.kks, pop) + attacs + hash_res.control.0.count_ones() as i64) as i16;
+    //println!("{hash_res_kks_len}");
+    //assert!(false);
     if depth_0 == 0 {
         // more detailed null move estimation for quiescence search. NOTE: Take attacs into account?
         evaluation += hash_res_kks_len; // we may do a more fine grained board control evaluation?
+        //evaluation +=ev_board(&hash_res.kks);
         if cfg!(feature = "salewskiChessDebug") {
             lift(
                 &mut g.max_delta_len,
@@ -1917,7 +1949,8 @@ fn abeta(
                                 }
                             }
                             if EQUAL_CAPTURE_EXTEND && depth_0 > 1 {
-                                if immediate_gain.abs() < 25 {
+                                if immediate_gain.abs() < 50 {
+                                    // previus 25
                                     {
                                         // if true || g.move_chain[cup as usize] != el.di {
                                         // only when not a re-capture
@@ -1949,7 +1982,7 @@ fn abeta(
                         v_depth_inc = 4 + (cup == 2) as i64 * 4;
                     }
                 }
-                if PROMOTE_EXTEND && el.promote_to.abs() != VOID_ID {
+                if PROMOTE_EXTEND && el.promote_to != VOID_ID {
                     v_depth_inc = 4;
                 }
                 if RANGE_EXTEND {
@@ -2219,7 +2252,7 @@ fn alphabeta(g: &mut Game, color: Color, depth: i64, ep_pos: i8) -> Move {
         0,
         -AB_INF as i64,
         AB_INF as i64,
-        20,
+        0, // does not matter for topmost ply
         ep_pos,
     );
     //when defined(salewskiChessDebug):
