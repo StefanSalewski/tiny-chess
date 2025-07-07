@@ -1,7 +1,7 @@
 // cargo clippy -- -A clippy::collapsible_if -A unreachable_code -A dead_code -A clippy::upper_case_acronyms -A clippy::out_of_bounds_indexing -A clippy::overly_complex_bool_expr -A clippy::too_many_arguments -A clippy::assertions_on_constants
 //
 // The Salewski Chess Engine -- ported from Nim to Rust as a tiny excercise while learning the Rust language
-// v 0.3.0 -- 21-JUN-2025
+// v 0.3.0 -- 30-JUN-2025
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 //
@@ -553,7 +553,7 @@ type Path4 = [[MiniGnu; 4]; 64];
 
 const IGNORE_MARKER_LOW_INT16: i16 = i16::MIN;
 const INVALID_SCORE: i16 = i16::MIN;
-const LOWEST_SCORE: i16 = -i16::MAX; // allows inverting the sign
+const LOWEST_SCORE: i64 = -i16::MAX as i64; // allows inverting the sign
 
 const NO_NXT_DIR_IDX: u8 = 100;
 
@@ -1312,13 +1312,13 @@ pub struct Move {
 }
 
 // result is for White
-fn plain_evaluate_board(g: &Game) -> i16 {
+fn plain_evaluate_board(g: &Game) -> i64 {
     let mut a = [0; 13];
-    let mut result: i16 = 0;
+    let mut result: i64 = 0;
     for (p, f) in g.board.iter().enumerate() {
         a[(6 + *f) as usize] += 1;
-        result += (FIGURE_VALUE[f.unsigned_abs() as usize] + g.freedom[(6 + *f) as usize][p])
-            * (signum(*f)) as i16;
+        result += (FIGURE_VALUE[f.unsigned_abs() as usize] + g.freedom[(6 + *f) as usize][p]) as i64
+            * signum(*f as i64);
     }
 
     // it is good to have a pair of knight, bishop, rook, and to have a few pawns left. New for v 0.3!
@@ -1596,20 +1596,16 @@ fn pmq(a: i64, b: i64) -> i64 {
 // v_depth: search depth, as a multiply of V_RATIO
 // v_depth is the virtual search depth, it is a multiple of real search depth to allow a more
 // fine grained search depth extension.
-// v_depth starts with a multiple of V_RATIO (n * VRation + V_RATIO div 2), and generally decreases by
+// v_depth starts with a multiple of V_RATIO (n * V_RATIO + V_RATIO div 2), and generally decreases by
 // V_RATIO for each recursive call of abeta(). For special very important moves it may decrease less,
 // i.e. if we are in check. Real depth is always v_depth div V_RATIO.
 // v_depth may even increase in rare cases!
 // cup: plain recursion depth counter counting upwards starting at zero, depth indication
 // alpha_0, beta: the search window for prunning
-// old_list_len: estimation of the number of moves that the opponent can do
 // ep_pos: if not -1, it indicates the position of the en pasant square
 // for en passant capture, i.e. after pawn move e2 e4 ep_pos is e3.
 // Result: Currently we return a value object. We may change that to a reference type, that
 // would allow changing moves and displaying whole move sequences. Maybe a bit slower.
-// Board: Currently we use a global board variable, but we may change that to pass
-// the board as first parameter as in OOP style. By using a non var board parameter,
-// we can avoid reseting the state -- we have to test the performace.
 //
 fn abeta(
     g: &mut Game,
@@ -1623,7 +1619,7 @@ fn abeta(
 ) -> Move {
     let mut result = Move {
         state: STATE_NO_VALID_MOVE,
-        score: LOWEST_SCORE as i64,
+        score: LOWEST_SCORE,
         ..Default::default()
     };
     if g.start_time.elapsed() > g.time_4 {
@@ -1641,13 +1637,12 @@ fn abeta(
     }
     debug_assert!(cup >= 0);
     debug_assert!(std::mem::size_of::<KK>() == 8);
-    //debug_assert!(old_list_len >= 0);
     debug_assert!((-1..63).contains(&ep_pos));
     let mut hash_res: HashResult;
     let mut sdi: [i64; 7] = [0; 7]; // source figure depth increase
     let mut ddi: [i64; 7] = [0; 7]; // destination figure depth increase
     let mut nep_pos: i8; // new en passant position for next ply
-    let mut attacs: i64 = 0; // attacked positions
+    let mut attacs: i64 = 0; // number of attacked positions
     let mut v_depth_inc: i64; // conditional depth extension, e.g. for chess or captures
     let mut eval_cnt: i64 = 0; // number of newly evaluated moves
     let mut alpha: i64 = alpha_0; // mutable alpha
@@ -1658,9 +1653,9 @@ fn abeta(
 
     let v_depth = v_depth - V_RATIO;
     let encoded_board = encode_board(g, color);
-    let hash_pos = get_tte(g, encoded_board);
+    let hash_pos: usize = get_tte(g, encoded_board);
     if hash_pos > 0 {
-        hash_res = g.tt[hash_pos as usize].res.clone(); // no way to avoid the clone() here
+        hash_res = g.tt[hash_pos].res.clone(); // no way to avoid the clone() here
         // debug_assert!(hash_res.kks.len() > 0); // can be zero for checkmate or stalemate
         // we have the list of moves, and maybe the exact score, or a possible beta cutoff
         debug_inc(&mut g.hash_succ);
@@ -1693,7 +1688,7 @@ fn abeta(
                 return result;
             }
         }
-        lift(&mut g.tt[hash_pos as usize].res.pri, depth_0 as i64); // avoid that this entry in tt is overwritten by recursive abeta() calls!
+        lift(&mut g.tt[hash_pos].res.pri, depth_0 as i64); // avoid that this entry in tt is overwritten by recursive abeta() calls!
     } else {
         // we have to create the move list
         hash_res = HashResult::default();
@@ -1721,12 +1716,12 @@ fn abeta(
     }
     */
 
-    let mut evaluation: i16 = LOWEST_SCORE;
+    let mut evaluation: i64 = LOWEST_SCORE;
     let mut pop: [i64; 64] = [0; 64];
     if depth_0 == 0 {
         // null move estimation for quiescence search
-        evaluation = plain_evaluate_board(g) * color as i16 - old_list_len as i16;
-        if evaluation as i64 >= beta {
+        evaluation = plain_evaluate_board(g) * color - old_list_len;
+        if evaluation >= beta {
             result.score = beta;
             debug_inc(&mut g.null_move_succ_1);
             return result;
@@ -1796,7 +1791,6 @@ fn abeta(
                 s.push(kk);
             }
         }
-
         for el in &mut s {
             debug_assert!(g.board[el.si as usize] != VOID_ID);
             // guessed ratings of the moves
@@ -1828,14 +1822,8 @@ fn abeta(
         // this field is optional information
         hash_res.tested_for_check = true;
     }
-
-    //let hash_res_kks_len =
-    //    (hash_res.kks.len() as i64 + attacs + hash_res.control.0.count_ones() as i64) as i16;
-
     let hash_res_kks_len =
-        (ev_board(&hash_res.kks, pop) + attacs + hash_res.control.0.count_ones() as i64) as i16;
-    //println!("{hash_res_kks_len}");
-    //assert!(false);
+        ev_board(&hash_res.kks, pop) + attacs + hash_res.control.0.count_ones() as i64;
     if depth_0 == 0 {
         // more detailed null move estimation for quiescence search. NOTE: Take attacs into account?
         evaluation += hash_res_kks_len; // we may do a more fine grained board control evaluation?
@@ -1846,17 +1834,17 @@ fn abeta(
                 (hash_res.kks.len() as i64 - old_list_len).abs(),
             );
         }
-        if evaluation as i64 >= beta {
+        if evaluation >= beta {
             result.score = beta;
             debug_inc(&mut g.null_move_succ_2);
             return result;
         }
-        lift(&mut alpha, evaluation as i64);
+        lift(&mut alpha, evaluation);
     }
     result.control = hash_res.control;
     let mut hash_res_kks_high: usize = 0; // the number of newly evaluated positions, we sort only this range.
-    result.score = evaluation as i64; // LOWEST_SCORE for depth_0 > 0
-    debug_assert!(depth_0 == 0 || result.score == LOWEST_SCORE as i64);
+    result.score = evaluation; // LOWEST_SCORE for depth_0 > 0
+    debug_assert!(depth_0 == 0 || result.score == LOWEST_SCORE);
     debug_assert!(hash_res.score[depth_0].s == INVALID_SCORE);
     // debug_assert!(hash_res.kks.len() > 0); occurs in endgame?
     for el in &mut hash_res.kks {
@@ -2073,11 +2061,11 @@ fn abeta(
                 cup + 1,
                 -beta,
                 -alpha,
-                hash_res_kks_len as i64,
+                hash_res_kks_len,
                 nep_pos,
             );
 
-            if m.score != LOWEST_SCORE as i64 {
+            if m.score != LOWEST_SCORE {
                 // not a hard cut with invalid result
                 m.score *= -1;
                 if rep_test_needed {
@@ -2143,9 +2131,9 @@ fn abeta(
                     continue; // was illegal, so ignore
                 }
             }
-            if m.score == LOWEST_SCORE as i64 {
+            if m.score == LOWEST_SCORE {
                 // hard cut with invalid result
-                result.score = LOWEST_SCORE as i64;
+                result.score = LOWEST_SCORE;
                 return result;
             }
             if m.score >= beta {
@@ -2558,7 +2546,7 @@ pub fn reply(g: &mut Game) -> Move {
     //let back_move
     let mut move_result = Move {
         state: STATE_NO_VALID_MOVE,
-        score: LOWEST_SCORE as i64,
+        score: LOWEST_SCORE,
         ..Default::default()
     };
     let color = ((g.move_counter as i64 + 1) % 2) * 2 - 1;
@@ -2588,11 +2576,11 @@ pub fn reply(g: &mut Game) -> Move {
     while depth < MAX_DEPTH {
         depth += 1;
         result = alphabeta(g, color, depth as i64, g.pjm);
-        if result.score != LOWEST_SCORE as i64 {
+        if result.score != LOWEST_SCORE {
             move_result = result;
             g.time_4 = Duration::from_secs_f32(g.secs_per_move * 5.0);
         } else {
-            assert!(move_result.score != LOWEST_SCORE as i64);
+            assert!(move_result.score != LOWEST_SCORE);
             println!("--- hard cut");
             return move_result;
         }
@@ -2714,4 +2702,4 @@ when false:
   set_board(B_QUEEN, "E3")
 
 */
-// 2657 lines 352 as
+// 2705 lines 336 as
