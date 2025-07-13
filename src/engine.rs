@@ -1,7 +1,7 @@
 // cargo clippy -- -A clippy::collapsible_if -A unreachable_code -A dead_code -A clippy::upper_case_acronyms -A clippy::out_of_bounds_indexing -A clippy::overly_complex_bool_expr -A clippy::too_many_arguments -A clippy::assertions_on_constants
 //
 // The Salewski Chess Engine -- ported from Nim to Rust as a tiny excercise while learning the Rust language
-// v 0.3.0 -- 30-JUN-2025
+// v 0.4.0 -- 12-JUL-2025
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 //
@@ -197,7 +197,7 @@ const _JUST_TEST: usize = if cfg!(feature = "salewskiChessDebug") {
 pub fn reset_game(g: &mut Game) {
     g.debug_list.clear();
     g.history.clear();
-    g.board = SETUP;
+    //g.board = SETUP;
     g.has_moved = BitSet::new();
     g.move_chain = [0; 64]; // which is better/faster?
     // g.move_chain.iter_mut().for_each(|m| *m = 0)
@@ -285,12 +285,35 @@ pub fn new_game() -> Game {
 
     //set_board(&mut g, VOID_ID, BF, B8);
     //set_board(&mut g, VOID_ID, BG, B8);
-    if false {
+
+    if !true {
+        println!("yyy");
         g.board = [0; 64];
-        set_board(&mut g, B_KING, BC, B3);
-        set_board(&mut g, W_KING, BD, B6);
-        set_board(&mut g, B_BISHOP, BC, B2);
-        set_board(&mut g, B_BISHOP, BE, B5);
+        //set_board(&mut g, B_KING, BH, B3);
+        //set_board(&mut g, W_KING, BB, B5);
+        //set_board(&mut g, B_BISHOP, BC, B2);
+        //set_board(&mut g, B_BISHOP, BE, B5);
+
+        //set_board(&mut g, B_KING, BC, B3);
+        //set_board(&mut g, W_KING, BA, B1);
+        //set_board(&mut g, B_BISHOP, BF, B5);
+        //set_board(&mut g, B_BISHOP, BE, B5);
+        
+        
+        //set_board(&mut g, B_KING, BC, B3);
+        //set_board(&mut g, W_KING, BA, B2);
+        //set_board(&mut g, B_BISHOP, BA, B4);
+        //set_board(&mut g, B_BISHOP, BF, B8);
+        
+        set_board(&mut g, B_KING, BC, B2);
+        set_board(&mut g, W_KING, BA, B6);
+        set_board(&mut g, B_BISHOP, BD, B6);
+        set_board(&mut g, B_BISHOP, BF, B5);
+
+        //set_board(&mut g, B_KING, BD, B2);
+        //set_board(&mut g, W_KING, BB, B4);
+        //set_board(&mut g, B_BISHOP, BB, B6);
+        //set_board(&mut g, B_BISHOP, BD, B7);
     }
 
     if false {
@@ -560,7 +583,7 @@ const NO_NXT_DIR_IDX: u8 = 100;
 pub type State = i32;
 const STATE_PLAYING: i32 = 0;
 const STATE_STALEMATE: i32 = 1;
-const STATE_CHECKMATE: i32 = 2;
+pub const STATE_CHECKMATE: i32 = 2;
 const STATE_NO_VALID_MOVE: i32 = 3;
 const STATE_CAN_CAPTURE_KING: i32 = 4;
 
@@ -765,7 +788,7 @@ fn debug_inc(x: &mut i64) {
 fn put_tte(g: &mut Game, key: BitBuffer192, mut res: HashResult, pri: i64, hash_pos: usize) {
     debug_assert!(g.tt.len() == TTE_SIZE);
     debug_inc(&mut g.table_put);
-    if hash_pos > 0 {
+    if hash_pos > 0 && res.pri < pri {
         res.pri = pri;
         g.tt[hash_pos].res = res;
         return;
@@ -1306,9 +1329,11 @@ pub struct Move {
     pub src: i64,
     pub dst: i64,
     pub score: i64,
+    pub checkmate_in: i8,
+    //only_one_move: bool,
     control: ChessSquares,
     promote_to: i64,
-    state: State,
+    pub state: State,
 }
 
 // result is for White
@@ -1317,7 +1342,8 @@ fn plain_evaluate_board(g: &Game) -> i64 {
     let mut result: i64 = 0;
     for (p, f) in g.board.iter().enumerate() {
         a[(6 + *f) as usize] += 1;
-        result += (FIGURE_VALUE[f.unsigned_abs() as usize] + g.freedom[(6 + *f) as usize][p]) as i64
+        result += (FIGURE_VALUE[f.unsigned_abs() as usize] + g.freedom[(6 + *f) as usize][p])
+            as i64
             * signum(*f as i64);
     }
 
@@ -1568,30 +1594,6 @@ const CHECK_EXTEND: bool = true; // depth extend when we are in check (or queen 
 const PROMOTE_EXTEND: bool = true; // pawn promotion
 const NO_EXTEND_AT_ALL: bool = false; // avoid depth extends for now
 
-// for endgame, to get a correct value for "moves to mate"
-// "moves to mate" is calculated from score and value of cup counter
-/*
-fn `+-?`(a, b: i64) -> i64  {
-  if a > KING_VALUE_DIV_2:
-    result = a + b
-  elif a < -KING_VALUE_DIV_2:
-    result = a - b
-  else:
-    result = a
-}
-*/
-
-// plus minus questionmark
-fn pmq(a: i64, b: i64) -> i64 {
-    if a > KING_VALUE_DIV_2 as i64 {
-        a + b
-    } else if a < -KING_VALUE_DIV_2 as i64 {
-        a - b
-    } else {
-        a
-    }
-}
-
 // color: White or Black, color of active player
 // v_depth: search depth, as a multiply of V_RATIO
 // v_depth is the virtual search depth, it is a multiple of real search depth to allow a more
@@ -1650,7 +1652,6 @@ fn abeta(
     let mut time_break: bool = false;
     // backup for debugging, so we can test if all our moves undo operations are correct
     let back: Board = g.board; // test board integrity
-
     let v_depth = v_depth - V_RATIO;
     let encoded_board = encode_board(g, color);
     let hash_pos: usize = get_tte(g, encoded_board);
@@ -1661,27 +1662,20 @@ fn abeta(
         debug_inc(&mut g.hash_succ);
         for i in (depth_0..(MAX_DEPTH + 1)).rev() {
             if hash_res.score[i].s != INVALID_SCORE {
-                // we have the exact score, so return it
-                if i == depth_0
-                    || hash_res.score[i].s.abs() < KING_VALUE_DIV_2
-                    || hash_res.score[i].s.abs() >= KING_VALUE
-                {
-                    // use of deeper knowledge in endgame can give wrong moves to mate reports
-                    // or generate repeated move sequences.
-                    result.score = pmq(hash_res.score[i].s as i64, -cup);
-                    result.src = hash_res.score[i].si as i64; // these details are currently only needed for cup == 0
-                    result.dst = hash_res.score[i].di as i64;
-                    result.promote_to = hash_res.score[i].promote_to as i64;
-                    result.state = hash_res.state;
-                    debug_inc(&mut g.score_hash_succ);
-                    return result;
-                } else if pmq(hash_res.score[i].s as i64, -cup) >= beta {
-                    // at least we can use the score for a beta cutoff
-                    result.score = beta;
-                    return result;
+                if (hash_res.score[i].s > 17000 || hash_res.score[i].s < -17000) && i != depth_0 {
+                // in endgame, we need the shortest path to checkmate!
+                    continue;
                 }
+                // we have the exact score, so return it
+                result.score = hash_res.score[i].s as i64;
+                result.src = hash_res.score[i].si as i64; // these details are currently only needed for cup == 0
+                result.dst = hash_res.score[i].di as i64;
+                result.promote_to = hash_res.score[i].promote_to as i64;
+                result.state = hash_res.state;
+                debug_inc(&mut g.score_hash_succ);
+                return result;
             }
-            if pmq(hash_res.floor[i].s as i64, -cup) >= beta {
+            if hash_res.floor[i].s as i64 >= beta {
                 // a beta cutoff
                 result.score = beta;
                 debug_inc(&mut g.floor_hash_succ);
@@ -1827,7 +1821,6 @@ fn abeta(
     if depth_0 == 0 {
         // more detailed null move estimation for quiescence search. NOTE: Take attacs into account?
         evaluation += hash_res_kks_len; // we may do a more fine grained board control evaluation?
-        //evaluation +=ev_board(&hash_res.kks);
         if cfg!(feature = "salewskiChessDebug") {
             lift(
                 &mut g.max_delta_len,
@@ -1842,6 +1835,7 @@ fn abeta(
         lift(&mut alpha, evaluation);
     }
     result.control = hash_res.control;
+    //result.only_one_move = hash_res.kks.len() == 1;
     let mut hash_res_kks_high: usize = 0; // the number of newly evaluated positions, we sort only this range.
     result.score = evaluation; // LOWEST_SCORE for depth_0 > 0
     debug_assert!(depth_0 == 0 || result.score == LOWEST_SCORE);
@@ -1854,7 +1848,6 @@ fn abeta(
         }
         debug_assert!(el.s != IGNORE_MARKER_LOW_INT16);
         debug_assert!(g.board[el.si as usize] != VOID_ID);
-        //hash_res_kks_high += 1; // the number of up to date positions, which we have to sort later
         if depth_0 == 0 && el.df == VOID_ID {
             // skip non-captures in quiescence search
             continue;
@@ -1868,22 +1861,26 @@ fn abeta(
                     eval_cnt, hash_res_kks_high, el.eval_depth
                 );
                 //debug_assert!(eval_cnt as usize + 1 == hash_res_kks_high); // no, not always
-                if false {
-                    // && cfg!(feature = "salewskiChessDebug") {
-                    println!("{:?}", hash_res.kks);
-                }
-                assert!(valid_move_found);
+                debug_assert!(valid_move_found);
                 time_break = true;
                 break;
             }
         }
         let mut m: Move = Default::default();
-        if el.eval_depth >= depth_0 as i8 {
-            // this move was already evaluated, but was not good enough, no beta cutoff
+        if is_a_king(el.df) {
+            result.state = STATE_CAN_CAPTURE_KING; // the other result fields are not really used/needed
+            result.score = KING_VALUE as i64 + 1;
+            hash_res.state = STATE_CAN_CAPTURE_KING;
+            hash_res.score[MAX_DEPTH].s = result.score as i16; // MAX_DEPTH, as it is the final score
+            put_tte(g, encoded_board, hash_res, depth_0 as i64, hash_pos); // store this for a fast return next time
+            return result;
+        }
+        if el.eval_depth >= depth_0 as i8 && !(close_to_checkmate(el.s as i64) && el.eval_depth > depth_0 as i8) {
+            // this move was already evaluated, but was not good enough, no beta cutoff. In endgame, this would not give us the shortest path to checkmate.
             valid_move_found = true; // list contains only valid moves, as we delete or skip the invalid ones
             debug_inc(&mut g.re_eval_skip);
-            m.score = pmq(el.s as i64, -cup);
-            debug_assert!(m.score < beta);
+            m.score = el.s as i64;
+            debug_assert!(result.state != STATE_CAN_CAPTURE_KING);
         } else {
             // do new evaluation
             eval_cnt += 1; // number of newly evaluated moves
@@ -1938,7 +1935,6 @@ fn abeta(
                             }
                             if EQUAL_CAPTURE_EXTEND && depth_0 > 1 {
                                 if immediate_gain.abs() < 50 {
-                                    // previus 25
                                     {
                                         // if true || g.move_chain[cup as usize] != el.di {
                                         // only when not a re-capture
@@ -1983,15 +1979,6 @@ fn abeta(
                     d = (7 - d) / 2;
                     v_depth_inc = d as i64;
                 }
-            }
-            if is_a_king(el.df) {
-                result.state = STATE_CAN_CAPTURE_KING; // the other result fields are not really used/needed
-                result.score = KING_VALUE as i64; // + 1 // or high(int16)
-                hash_res.state = STATE_CAN_CAPTURE_KING;
-                hash_res.score[MAX_DEPTH].s = result.score as i16; // MAX_DEPTH, as it is the final score
-                debug_assert!(hash_pos == 0); // once stored, we just retrieve it
-                put_tte(g, encoded_board, hash_res, depth_0 as i64, hash_pos); // store this for a fast return next time
-                return result;
             }
             g.board[el.si as usize] = VOID_ID; // the basic movement
             g.board[el.di as usize] = el.sf;
@@ -2064,7 +2051,6 @@ fn abeta(
                 hash_res_kks_len,
                 nep_pos,
             );
-
             if m.score != LOWEST_SCORE {
                 // not a hard cut with invalid result
                 m.score *= -1;
@@ -2088,7 +2074,8 @@ fn abeta(
                     el.s = IGNORE_MARKER_LOW_INT16; // mark for deletion
                 } else {
                     valid_move_found = true;
-                    el.s = (pmq(m.score, cup)) as i16; // caution due to cutoff score might be not correct. For stable sorting of movelist there should be no problems!
+                    // here xpmq seems to be really required. Why?
+                    el.s = m.score as i16; // caution due to cutoff score might be not correct. For stable sorting of movelist there should be no problems!
                     if m.score > alpha && m.score < beta {
                         // otherwise our abeta() call did a beta cutoff, so we have no real score
                         el.eval_depth = depth_0 as i8;
@@ -2136,16 +2123,16 @@ fn abeta(
                 result.score = LOWEST_SCORE;
                 return result;
             }
-            if m.score >= beta {
-                // debug_assert!(is_sorted2(hash_res.kks, hash_res_kks_high + 1, hash_res.kks.high)) // no, can be more than one partition
-                ixsort(&mut hash_res.kks, hash_res_kks_high + 1);
-                //debug_assert!(is_sorted(&hash_res.kks, hash_res_kks_high as usize));
-                //debug_assert!(hash_res.floor[depth_0 as usize].s < m.score as i16); // always true, due to beta cutoff test at top of proc
-                hash_res.floor[depth_0].s = pmq(m.score, cup) as i16;
-                put_tte(g, encoded_board, hash_res, depth_0 as i64, hash_pos);
-                result.score = beta;
-                return result;
-            }
+        }
+        if m.score >= beta {
+            // debug_assert!(is_sorted2(hash_res.kks, hash_res_kks_high + 1, hash_res.kks.high)) // no, can be more than one partition
+            ixsort(&mut hash_res.kks, hash_res_kks_high + 1);
+            //debug_assert!(is_sorted(&hash_res.kks, hash_res_kks_high as usize));
+            //debug_assert!(hash_res.floor[depth_0 as usize].s < m.score as i16); // always true, due to beta cutoff test at top of proc
+            hash_res.floor[depth_0].s = m.score as i16;
+            put_tte(g, encoded_board, hash_res, depth_0 as i64, hash_pos);
+            result.score = beta;
+            return result;
         }
         lift(&mut alpha, m.score);
         if m.score > result.score {
@@ -2159,7 +2146,7 @@ fn abeta(
     if depth_0 > 0 && !valid_move_found {
         if in_check(g, hash_res.king_pos, color, false) {
             result.state = STATE_CHECKMATE;
-            result.score = -KING_VALUE as i64 + cup - 1;
+            result.score = -KING_VALUE as i64;
         } else {
             result.score = 0;
             result.state = STATE_STALEMATE;
@@ -2181,15 +2168,12 @@ fn abeta(
                 || result.state == STATE_CHECKMATE
                 || result.state == STATE_STALEMATE
         );
-        hash_res.score[depth_0].s = pmq(result.score, cup) as i16;
+        hash_res.score[depth_0].s = result.score as i16;
         hash_res.score[depth_0].si = result.src as i8;
         hash_res.score[depth_0].di = result.dst as i8;
     } else {
         // if time_break {
-        lift_i16(
-            &mut hash_res.floor[depth_0].s,
-            pmq(result.score, cup) as i16,
-        );
+        lift_i16(&mut hash_res.floor[depth_0].s, result.score as i16);
     }
     hash_res.state = result.state;
     if cfg!(feature = "salewskiChessDebug") {
@@ -2225,15 +2209,19 @@ fn _check_mate_in(score: i64) -> i64 {
     }
 }
 
+fn close_to_checkmate(score: i64) -> bool {
+    score > 17000 || score < -17000
+}
+
 fn alphabeta(g: &mut Game, color: Color, depth: i64, ep_pos: i8) -> Move {
-    debug_assert!((0.1..10.0).contains(&g.secs_per_move));
+    debug_assert!((0.1..18.0).contains(&g.secs_per_move));
     //g.time_0 = Duration::from_secs_f32(g.secs_per_move * 0.7);
     g.time_2 = Duration::from_secs_f32(g.secs_per_move * 1.5);
     g.time_3 = Duration::from_secs_f32(g.secs_per_move * 2.5);
     //g.time_4 = Duration::from_secs_f32(g.secs_per_move * 5.0);
     g.start_time = Instant::now();
     reset_statistics(g);
-    let result = abeta(
+    let mut result = abeta(
         g,
         color,
         depth * V_RATIO + V_RATIO / 2,
@@ -2243,6 +2231,9 @@ fn alphabeta(g: &mut Game, color: Color, depth: i64, ep_pos: i8) -> Move {
         0, // does not matter for topmost ply
         ep_pos,
     );
+    if close_to_checkmate(result.score) {
+        result.checkmate_in = depth as i8;
+    }
     //when defined(salewskiChessDebug):
     if true {
         if cfg!(feature = "salewskiChessDebug") {
@@ -2576,6 +2567,7 @@ pub fn reply(g: &mut Game) -> Move {
     while depth < MAX_DEPTH {
         depth += 1;
         result = alphabeta(g, color, depth as i64, g.pjm);
+        //println!("State {}", result.state);
         if result.score != LOWEST_SCORE {
             move_result = result;
             g.time_4 = Duration::from_secs_f32(g.secs_per_move * 5.0);
@@ -2597,6 +2589,7 @@ pub fn reply(g: &mut Game) -> Move {
         if start_time.elapsed() > g.time_0 {
             break;
         }
+        //if result.only_one_move { break; }
     }
     result
 }
@@ -2702,4 +2695,4 @@ when false:
   set_board(B_QUEEN, "E3")
 
 */
-// 2705 lines 336 as
+// 2698 lines 336 as

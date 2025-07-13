@@ -27,6 +27,14 @@ Parts of the user interface were created with the help of AI tools. GPT-4 was us
 
 The chess engine's functionality has undergone minimal testing so far. Nevertheless, it serves as a compact example of using `egui` with a custom graphic area and background task execution.
 
+### Improvements for version 0.4
+
+The endgame logic has been improved and simplified. In endgame, a problem is to correctly estimate the number of moves to checkmate, and
+to do not run into a trap repeating the same moves forever. When using the transposition table, it might occur that not always the shortest path
+to checkmate is selected, leading to move repetitions: The engine sees the checkmate, but does not choose the correct shortest path, which can
+lead to infinitive loops. We now use a simplified logic for this, which is simple and quite good, but not perfect. This is more a theoretical
+restriction -- in an ordinary game the human player will typically not survive to the endgame state, and in most cases the computer managed the endgame quite well.
+
 ### Future Plans
 
 We might develop a Xilem GUI by the end of this year or extend the current `egui` version. Other Rust GUI toolkits like [iced](https://iced.rs/) and [dioxus](https://dioxuslabs.com/) are also potential options.

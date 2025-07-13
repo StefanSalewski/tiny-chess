@@ -1,5 +1,5 @@
 // Plain egui frontend for the tiny Salewski chess engine
-// v 0.3 -- 22-JUN-2025
+// v 0.4 -- 12-JUL-2025
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 
@@ -11,7 +11,6 @@
 use eframe::egui;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
-//use std::time::Duration;
 
 mod engine;
 
@@ -56,7 +55,6 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| {
             // This gives us image support:
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            //Box::<MyApp>::default()
             Ok(Box::<MyApp>::default())
         }),
     )
@@ -271,6 +269,11 @@ impl eframe::App for MyApp {
             // Check if the thread has finished
             if let Some(rx) = &self.rx {
                 if let Ok(m) = rx.try_recv() {
+                    if m.state == engine::STATE_CHECKMATE {
+                        self.msg = " Checkmate, game terminated!".to_owned();
+                        self.state = STATE_UX;
+                        return;
+                    }
                     self.tagged = [0; 64];
                     self.tagged[m.src as usize] = 2;
                     self.tagged[m.dst as usize] = 2;
@@ -289,14 +292,23 @@ impl eframe::App for MyApp {
                         m.dst as i8,
                         flag,
                     ) + &format!(" (score: {})", m.score);
-                    if m.score == engine::KING_VALUE as i64 {
-                        self.msg.push_str(" Checkmate, game terminated!");
+                    if m.checkmate_in == 2 && m.score == engine::KING_VALUE as i64
+                    {
+                        println!("{}  {}", m.checkmate_in, m.score);
+                        //self.msg.push_str(" Checkmate, game terminated!");
+                        self.msg = " Checkmate, game terminated!".to_owned();
                         self.state = STATE_UX;
                         return;
-                    } else if m.score > engine::KING_VALUE_DIV_2 as i64 {
+                    } else if m.score > engine::KING_VALUE_DIV_2 as i64
+                        || m.score < -engine::KING_VALUE_DIV_2 as i64
+                    {
                         self.msg.push_str(&format!(
                             " Checkmate in {}",
-                            (engine::KING_VALUE as i64 - m.score) / 2
+                            if m.score > 0 {
+                                m.checkmate_in / 2 - 1
+                            } else {
+                                m.checkmate_in / 2 + 1
+                            }
                         ));
                     }
                     self.state = STATE_UZ;
