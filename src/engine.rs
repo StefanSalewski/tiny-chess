@@ -1,7 +1,7 @@
 // cargo clippy -- -A clippy::collapsible_if -A unreachable_code -A dead_code -A clippy::upper_case_acronyms -A clippy::out_of_bounds_indexing -A clippy::overly_complex_bool_expr -A clippy::too_many_arguments -A clippy::assertions_on_constants
 //
 // The Salewski Chess Engine -- ported from Nim to Rust as a tiny excercise while learning the Rust language
-// v 0.4.0 -- 12-JUL-2025
+// v 0.5.0 -- 20-JUL-2025
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 //
@@ -298,22 +298,32 @@ pub fn new_game() -> Game {
         //set_board(&mut g, W_KING, BA, B1);
         //set_board(&mut g, B_BISHOP, BF, B5);
         //set_board(&mut g, B_BISHOP, BE, B5);
-        
-        
+
         //set_board(&mut g, B_KING, BC, B3);
         //set_board(&mut g, W_KING, BA, B2);
         //set_board(&mut g, B_BISHOP, BA, B4);
         //set_board(&mut g, B_BISHOP, BF, B8);
-        
-        set_board(&mut g, B_KING, BC, B2);
-        set_board(&mut g, W_KING, BA, B6);
-        set_board(&mut g, B_BISHOP, BD, B6);
-        set_board(&mut g, B_BISHOP, BF, B5);
+
+        //set_board(&mut g, B_KING, BC, B2);
+        //set_board(&mut g, W_KING, BA, B6);
+        //set_board(&mut g, B_BISHOP, BD, B6);
+        //set_board(&mut g, B_BISHOP, BF, B5);
 
         //set_board(&mut g, B_KING, BD, B2);
         //set_board(&mut g, W_KING, BB, B4);
         //set_board(&mut g, B_BISHOP, BB, B6);
         //set_board(&mut g, B_BISHOP, BD, B7);
+
+        // hard
+        //set_board(&mut g, B_KING, BC, B2);
+        //set_board(&mut g, W_KING, BE, B2);
+        //set_board(&mut g, B_BISHOP, BC, B6);
+        //set_board(&mut g, B_BISHOP, BF, B4);
+
+        set_board(&mut g, B_KING, BE, B4);
+        set_board(&mut g, W_KING, BC, B3);
+        set_board(&mut g, B_BISHOP, BA, B5);
+        set_board(&mut g, B_BISHOP, BD, B7);
     }
 
     if false {
@@ -577,6 +587,7 @@ type Path4 = [[MiniGnu; 4]; 64];
 const IGNORE_MARKER_LOW_INT16: i16 = i16::MIN;
 const INVALID_SCORE: i16 = i16::MIN;
 const LOWEST_SCORE: i64 = -i16::MAX as i64; // allows inverting the sign
+const BETH: i64 = i16::MIN as i64;
 
 const NO_NXT_DIR_IDX: u8 = 100;
 
@@ -635,6 +646,8 @@ fn ev_board(kks: &KKS, mut pop: [i64; 64]) -> i64 {
 #[derive(Copy, Clone, Default)]
 struct Guide2 {
     s: i16,
+    alp: i16,
+    beth: i16,
 }
 
 type HashLine1 = [Guide1; MAX_DEPTH + 1];
@@ -662,12 +675,6 @@ struct TTE {
 }
 
 fn lift(a: &mut i64, b: i64) {
-    if *a < b {
-        *a = b
-    }
-}
-
-fn lift_i16(a: &mut i16, b: i16) {
     if *a < b {
         *a = b
     }
@@ -817,6 +824,8 @@ fn init_hr(hr: &mut HashResult) {
     hr.score = HASH_RESULT_ALL_ZERO;
     for el in &mut hr.floor {
         el.s = INVALID_SCORE;
+        el.alp = i16::MAX; //INVALID_SCORE;
+        el.beth = BETH as i16;
     }
     hr.state = STATE_PLAYING;
 }
@@ -1663,7 +1672,7 @@ fn abeta(
         for i in (depth_0..(MAX_DEPTH + 1)).rev() {
             if hash_res.score[i].s != INVALID_SCORE {
                 if (hash_res.score[i].s > 17000 || hash_res.score[i].s < -17000) && i != depth_0 {
-                // in endgame, we need the shortest path to checkmate!
+                    // in endgame, we need the shortest path to checkmate!
                     continue;
                 }
                 // we have the exact score, so return it
@@ -1675,8 +1684,11 @@ fn abeta(
                 debug_inc(&mut g.score_hash_succ);
                 return result;
             }
-            if hash_res.floor[i].s as i64 >= beta {
-                // a beta cutoff
+            if hash_res.floor[i].s as i64 >= beta
+                && alpha_0 >= hash_res.floor[i].alp as i64
+                && beta <= hash_res.floor[i].beth as i64
+            {
+                // a beta cutoff -- we have to ensure that the function parameters alpha_0 and beta are compatible with the cached value for beta cutoff
                 result.score = beta;
                 debug_inc(&mut g.floor_hash_succ);
                 return result;
@@ -1872,10 +1884,13 @@ fn abeta(
             result.score = KING_VALUE as i64 + 1;
             hash_res.state = STATE_CAN_CAPTURE_KING;
             hash_res.score[MAX_DEPTH].s = result.score as i16; // MAX_DEPTH, as it is the final score
+            hash_res.score[depth_0].s = result.score as i16;
             put_tte(g, encoded_board, hash_res, depth_0 as i64, hash_pos); // store this for a fast return next time
             return result;
         }
-        if el.eval_depth >= depth_0 as i8 && !(close_to_checkmate(el.s as i64) && el.eval_depth > depth_0 as i8) {
+        if el.eval_depth >= depth_0 as i8
+            && !(close_to_checkmate(el.s as i64) && el.eval_depth > depth_0 as i8)
+        {
             // this move was already evaluated, but was not good enough, no beta cutoff. In endgame, this would not give us the shortest path to checkmate.
             valid_move_found = true; // list contains only valid moves, as we delete or skip the invalid ones
             debug_inc(&mut g.re_eval_skip);
@@ -2054,6 +2069,12 @@ fn abeta(
             if m.score != LOWEST_SCORE {
                 // not a hard cut with invalid result
                 m.score *= -1;
+                if m.score > hash_res.floor[depth_0].s as i64 {
+                    // cached beta cutoff candidate
+                    hash_res.floor[depth_0].s = m.score as i16;
+                    hash_res.floor[depth_0].alp = alpha as i16;
+                    hash_res.floor[depth_0].beth = beta as i16;
+                }
                 if rep_test_needed {
                     // deal with repetive positions
                     if m.score < 0 {
@@ -2129,8 +2150,7 @@ fn abeta(
             ixsort(&mut hash_res.kks, hash_res_kks_high + 1);
             //debug_assert!(is_sorted(&hash_res.kks, hash_res_kks_high as usize));
             //debug_assert!(hash_res.floor[depth_0 as usize].s < m.score as i16); // always true, due to beta cutoff test at top of proc
-            hash_res.floor[depth_0].s = m.score as i16;
-            put_tte(g, encoded_board, hash_res, depth_0 as i64, hash_pos);
+            put_tte(g, encoded_board, hash_res, depth_0 as i64, hash_pos); // save floor
             result.score = beta;
             return result;
         }
@@ -2171,9 +2191,6 @@ fn abeta(
         hash_res.score[depth_0].s = result.score as i16;
         hash_res.score[depth_0].si = result.src as i8;
         hash_res.score[depth_0].di = result.dst as i8;
-    } else {
-        // if time_break {
-        lift_i16(&mut hash_res.floor[depth_0].s, result.score as i16);
     }
     hash_res.state = result.state;
     if cfg!(feature = "salewskiChessDebug") {
@@ -2695,4 +2712,4 @@ when false:
   set_board(B_QUEEN, "E3")
 
 */
-// 2698 lines 336 as
+// 2715 lines 343 as

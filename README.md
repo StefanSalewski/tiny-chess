@@ -27,7 +27,17 @@ Parts of the user interface were created with the help of AI tools. GPT-4 was us
 
 The chess engine's functionality has undergone minimal testing so far. Nevertheless, it serves as a compact example of using `egui` with a custom graphic area and background task execution.
 
-### Improvements for version 0.4
+### Improvements for version 0.5
+
+After nearly ten years, we finally fixed a bug in the beta-cutoff caching: When caching a cutoff, we have not only to store the actual
+cutoff value, but also the alpha and beta parameters with which we called abeta(). And when we use this cached result, we have
+to check if current alpha and beta is compatible with the cached values. This fix should finally solve the rare endgame issues,
+and might improve playing strength. This correct cutoff caching is more restrictive, so one may ask if it makes much sense at all.
+
+This version also contains the recently applied fixes for the endgame: In endgame, only data from transposition table is used, that matches the
+current search depth, but not deeper knowledge. This ensures that the direct shortest path to checkmate is used.
+
+### Temporary endgame improvements for version 0.4
 
 The endgame logic has been improved and simplified. In endgame, a problem is to correctly estimate the number of moves to checkmate, and
 to do not run into a trap repeating the same moves forever. When using the transposition table, it might occur that not always the shortest path
@@ -39,6 +49,9 @@ restriction -- in an ordinary game the human player will typically not survive t
 
 We might develop a Xilem GUI by the end of this year or extend the current `egui` version. Other Rust GUI toolkits like [iced](https://iced.rs/) and [dioxus](https://dioxuslabs.com/) are also potential options.
 
+We have already an alternative Bevy 3D GUI, for which we will replace the current engine with the one of this package soon.
+Xilem is now able to use buttons with custom colors and font sizes, so we can start with a Xilem GUI soon.
+
 ### How to Run
 
 ```sh
@@ -47,5 +60,4 @@ cd tiny-chess
 cargo run --release
 ```
 
-[Text content and layout was optimized by GPT-4]
 
