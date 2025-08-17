@@ -1,12 +1,12 @@
 // Plain egui frontend for the tiny Salewski chess engine
-// v 0.4 -- 12-JUL-2025
+// v 0.5 -- 17-AUG-2025
 // (C) 2015 - 2032 Dr. Stefan Salewski
 // All rights reserved.
 
-// this is a version with threading, using spawn and channels
+// Threaded UI: engine runs on a worker thread; UI uses channels to receive the move.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-#![allow(rustdoc::missing_crate_level_docs)] // it's an example
+#![allow(rustdoc::missing_crate_level_docs)]
 
 use eframe::egui;
 use std::sync::{Arc, Mutex, mpsc};
@@ -14,65 +14,98 @@ use std::thread;
 
 mod engine;
 
-const ENGINE: u8 = 1;
-const HUMAN: u8 = 0;
+// ────────────────────────────────────────────────────────────────────────────────
+// Domain enums (avoid magic numbers)
+// ────────────────────────────────────────────────────────────────────────────────
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum PlayerKind {
+    Human,
+    Engine,
+}
+
+// unused
+impl PlayerKind {
+    fn as_u8(self) -> u8 {
+        match self {
+            PlayerKind::Human => 0,
+            PlayerKind::Engine => 1,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum TurnState {
+    // A “stable” terminal state (no more moves).
+    GameOver,
+
+    // Decide whose turn it is (reads move counter & player settings).
+    DecideTurn,
+
+    // Human: waiting for source square.
+    AwaitSource,
+
+    // Human: waiting for destination square (after showing tags).
+    AwaitDestination,
+
+    // Engine: spawn worker and wait for result.
+    EngineThinking,
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// UI constants and helpers
+// ────────────────────────────────────────────────────────────────────────────────
 
 const FIGURES: [&str; 13] = [
-    "♚", "♛", "♜", "♝", "♞", "♟", "", "♙", "♘", "♗", "♖", "♕", "♔",
+    "♚", "♛", "♜", "♝", "♞", "♟", "", "♙", "♘", "♗", "♖", "♕",
+    "♔",
+    //"♚", "♛", "♜", "♝", "♞", "♟\u{FE0E}", "", "♙", "♘", "♗", "♖", "♕", "♔", // the variant for black pawn avoiding emoji seems not to work in EGUI
 ];
 
-const STATE_UZ: i32 = -2; // state when engine or human player have made their move, so it's other sides turn
-const STATE_UX: i32 = -1; // stable state, current game is terminated
-const STATE_U0: i32 = 0;
-const STATE_U1: i32 = 1;
-const STATE_U2: i32 = 2;
-const STATE_U3: i32 = 3;
-
-const BOOL_TO_ENGINE: [u8; 2] = [HUMAN, ENGINE];
-const BOOL_TO_STATE: [i32; 2] = [STATE_U0, STATE_U2];
-
-fn _print_variable_type<K>(_: &K) {
-    println!("{}", std::any::type_name::<K>())
+fn idx(row: usize, col: usize) -> usize {
+    col + row * 8
 }
 
-fn _rot_180(b: engine::Board) -> engine::Board {
-    let mut result: engine::Board = [0; 64];
-    for (i, f) in b.iter().enumerate() {
-        result[63 - i] = *f;
+fn rotated_coords(rotated: bool, row: usize, col: usize) -> (usize, usize) {
+    if rotated {
+        (7 - row, 7 - col)
+    } else {
+        (row, col)
     }
-    result
 }
 
-fn main() -> Result<(), eframe::Error> {
-    //env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1200.0, 800.0]),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "My egui App",
-        options,
-        Box::new(|cc| {
-            // This gives us image support:
-            egui_extras::install_image_loaders(&cc.egui_ctx);
-            Ok(Box::<MyApp>::default())
-        }),
-    )
-}
+// ────────────────────────────────────────────────────────────────────────────────
+// App
+// ────────────────────────────────────────────────────────────────────────────────
 
 struct MyApp {
+    // Game state shared with worker thread
     game: Arc<Mutex<engine::Game>>,
-    msg: String,
+
+    // UI state
+    window_title: String,
     rotated: bool,
-    time_per_move: f32,
-    tagged: engine::Board,
-    state: engine::State,
-    players: [u8; 2],
+    seconds_per_move: f32,
+
+    // For square highlights: 0=none, 1=possible move, 2=last move; -1=selected
+    tags: engine::Board,
+
+    // Who plays white/black
+    players: [PlayerKind; 2],
     engine_plays_white: bool,
     engine_plays_black: bool,
-    p0: i32,
-    new_game: bool,
-    bbb: engine::Board,
+
+    // Turn state machine
+    state: TurnState,
+
+    // Selection
+    selected_from: i32,
+
+    // Bookkeeping
+    board: engine::Board,
+    start_new_game: bool,
+
+    // Engine worker
     rx: Option<mpsc::Receiver<engine::Move>>,
 }
 
@@ -80,246 +113,355 @@ impl Default for MyApp {
     fn default() -> Self {
         Self {
             game: Arc::new(Mutex::new(engine::new_game())),
-            msg: "Tiny chess".to_owned(),
-            time_per_move: 1.5,
+            window_title: "Tiny chess".to_owned(),
             rotated: true,
-            tagged: [0; 64],
-            players: [HUMAN, ENGINE],
-            p0: -1,
-            state: STATE_UZ,
-            bbb: [0; 64],
-            new_game: true,
+            seconds_per_move: 1.5,
+            tags: [0; 64],
+            players: [PlayerKind::Human, PlayerKind::Engine],
             engine_plays_white: false,
             engine_plays_black: true,
-            rx: None, // Initialize receiver as None
+            state: TurnState::DecideTurn,
+            selected_from: -1,
+            board: [0; 64],
+            start_new_game: true,
+            rx: None,
         }
     }
+}
+
+fn main() -> eframe::Result<()> {
+    // env_logger::init(); // enable if you want logging via RUST_LOG
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([1050.0, 800.0]),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "Tiny chess",
+        options,
+        Box::new(|cc| {
+            // Enable image loading (e.g. png, jpg) for egui
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+            Ok(Box::<MyApp>::default())
+        }),
+    )
 }
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Tweak UI scale to keep the board crisp on most displays.
         ctx.set_pixels_per_point(1.5);
-        if let Ok(ref mut mutex) = self.game.try_lock() {
-            if self.new_game {
-                engine::reset_game(mutex);
-                self.new_game = false;
-                self.state = STATE_UZ;
-                self.tagged = [0; 64];
+
+        // ── Apply deferred "new game" and sync seconds per move to engine
+        if let Ok(ref mut game) = self.game.try_lock() {
+            if self.start_new_game {
+                engine::reset_game(game);
+                self.start_new_game = false;
+                self.state = TurnState::DecideTurn;
+                self.tags = [0; 64];
             }
-            self.bbb = engine::get_board(mutex);
-            mutex.secs_per_move = self.time_per_move;
+            self.board = engine::get_board(game);
+            game.secs_per_move = self.seconds_per_move;
         }
 
-        let mut x: i8 = -1;
-        let mut y: i8 = -1;
+        // Will capture a click, if any, during the paint pass.
+        let mut clicked_col: Option<usize> = None;
+        let mut clicked_row: Option<usize> = None;
+
+        // ───────────────────────────────────────────
+        // Left side panel
+        // ───────────────────────────────────────────
         egui::SidePanel::left("side_panel")
-            .min_width(200.0)
+            //.min_width(200.0)
             .show(ctx, |ui| {
                 ui.ctx()
-                    .send_viewport_cmd(egui::ViewportCommand::Title(self.msg.clone()));
-                ui.heading(self.msg.clone());
-                ui.add(egui::Slider::new(&mut self.time_per_move, 0.1..=5.0).text("Sec/move"));
+                    .send_viewport_cmd(egui::ViewportCommand::Title(self.window_title.clone()));
+
+                ui.heading(&self.window_title);
+                //ui.add(egui::Slider::new(&mut self.seconds_per_move, 0.1..=5.0).text("Sec/move"));
+
+                ui.label("Seconds per move");
+                ui.add(egui::Slider::new(&mut self.seconds_per_move, 0.1..=5.0).text(" "));
+
                 if ui.button("Rotate").clicked() {
-                    self.rotated ^= true;
-                    self.tagged.reverse();
+                    self.rotated = !self.rotated;
+                    self.tags.reverse(); // mirror highlights with the board
                 }
+
                 if ui.button("Print movelist").clicked() {
-                    engine::print_move_list(&self.game.lock().unwrap());
+                    if let Ok(game) = self.game.lock() {
+                        engine::print_move_list(&game);
+                    }
                 }
+
                 if ui.button("New Game").clicked() {
-                    self.new_game = true;
+                    self.start_new_game = true;
                 }
+
                 if ui
                     .checkbox(&mut self.engine_plays_white, "Engine plays white")
                     .changed()
                 {
-                    self.players[0] = BOOL_TO_ENGINE[self.engine_plays_white as usize];
-                    self.state = STATE_UZ;
+                    self.players[0] = if self.engine_plays_white {
+                        PlayerKind::Engine
+                    } else {
+                        PlayerKind::Human
+                    };
+                    self.state = TurnState::DecideTurn;
                 }
+
                 if ui
                     .checkbox(&mut self.engine_plays_black, "Engine plays black")
                     .changed()
                 {
-                    self.players[1] = BOOL_TO_ENGINE[self.engine_plays_black as usize];
-                    self.state = STATE_UZ;
+                    self.players[1] = if self.engine_plays_black {
+                        PlayerKind::Engine
+                    } else {
+                        PlayerKind::Human
+                    };
+                    self.state = TurnState::DecideTurn;
                 }
-                ui.image(egui::include_image!("ferris.png"));
+
+                //ui.image(egui::include_image!("ferris.png"));
             });
+
+        // ───────────────────────────────────────────
+        // Central panel (board)
+        // ───────────────────────────────────────────
         egui::CentralPanel::default().show(ctx, |ui| {
-            if self.state == STATE_U2 {
+            if self.state == TurnState::EngineThinking {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(
                     " ... one moment please, reply is:".to_owned(),
                 ));
             }
+
             let available_size = ui.available_size();
-            let central_panel_rect = ui.min_rect();
-            let center_x = central_panel_rect.center().x;
-            let center_y = central_panel_rect.center().y;
-            let mut responses = Vec::new();
+            let central_rect = ui.min_rect();
+            let center = central_rect.center();
+
+            // Square geometry
             let board_size = available_size.min_elem();
-            let square_size = board_size / 8.0;
-            let board_top_left = egui::Pos2 {
-                x: center_x - (4.0 * square_size),
-                y: center_y - (4.0 * square_size),
-            };
+            let square = board_size / 8.0;
+            let board_top_left = egui::pos2(center.x - 4.0 * square, center.y - 4.0 * square);
+
+            let mut tiles = Vec::with_capacity(64);
+
+            // Create 64 interactive rects
             for row in 0..8 {
                 for col in 0..8 {
-                    let p = col + row * 8;
-                    let t = &self.tagged[p];
-                    let h: u8;
-                    if *t == 2 {
-                        h = 25;
-                    } else if *t == 1 {
-                        h = 50;
+                    let p = idx(row, col);
+                    let highlight = self.tags[p];
+                    let shade = match highlight {
+                        2 => 25,
+                        1 => 50,
+                        -1 => 0, // selected uses normal color (piece will stand out)
+                        _ => 0,
+                    } as u8;
+
+                    let base = if (row + col) % 2 == 0 {
+                        egui::Color32::from_rgb(255, 255, 255 - shade)
                     } else {
-                        h = 0;
-                    }
-                    let color = if (row + col) % 2 == 0 {
-                        egui::Color32::from_rgb(255, 255, 255 - h)
-                    } else {
-                        egui::Color32::from_rgb(205, 205, 205 - h)
+                        egui::Color32::from_rgb(205, 205, 205 - shade)
                     };
-                    let top_left = egui::Pos2 {
-                        x: board_top_left.x + (col as f32 * square_size),
-                        y: board_top_left.y + (row as f32 * square_size),
-                    };
-                    let bottom_right = egui::Pos2 {
-                        x: top_left.x + square_size,
-                        y: top_left.y + square_size,
-                    };
-                    let rect = egui::Rect::from_two_pos(top_left, bottom_right);
+
+                    let top_left = egui::pos2(
+                        board_top_left.x + (col as f32) * square,
+                        board_top_left.y + (row as f32) * square,
+                    );
+                    let rect = egui::Rect::from_min_size(top_left, egui::vec2(square, square));
                     let response = ui.allocate_rect(rect, egui::Sense::click());
-                    let (r, c) = if self.rotated {
-                        (7 - row, 7 - col)
-                    } else {
-                        (row, col)
-                    };
-                    responses.push((response, rect, color, c, r));
+
+                    // Convert to logical board coords (0..=7)
+                    let (b_row, b_col) = rotated_coords(self.rotated, row, col);
+                    tiles.push((response, rect, base, b_row, b_col));
                 }
             }
+
+            // Paint
             let painter = ui.painter();
-            for (response, rect, color, col, row) in responses {
+            for (response, rect, color, b_row, b_col) in tiles {
                 if response.clicked() {
-                    x = col as i8;
-                    y = row as i8;
+                    clicked_col = Some(b_col);
+                    clicked_row = Some(b_row);
                 }
                 painter.rect_filled(rect, 0.0, color);
-                let text_pos = rect.center();
-                let piece = FIGURES[(self.bbb[col + row * 8] + 6) as usize];
+
+                // Draw piece using engine board
+                let piece_index = (self.board[idx(b_row, b_col)] + 6) as usize;
+                let glyph = FIGURES[piece_index];
                 painter.text(
-                    text_pos,
+                    rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    piece,
-                    egui::FontId::proportional(square_size * 0.9),
+                    glyph,
+                    egui::FontId::proportional(square * 0.9),
                     egui::Color32::BLACK,
                 );
             }
-            if self.state == STATE_U3 {
+
+            // While engine is thinking we want to keep repainting so the UI stays responsive
+            if self.state == TurnState::EngineThinking {
                 ui.ctx().request_repaint();
             }
         });
 
-        if self.state == STATE_UX {
-            // game terminated
-        } else if self.state == STATE_UZ {
-            let next = self.game.lock().unwrap().move_counter as usize % 2;
-            self.state = BOOL_TO_STATE[self.players[next] as usize];
-        } else if self.state == STATE_U0 && x >= 0 {
-            self.p0 = (x + y * 8) as i32;
-            let h = self.p0 as i64;
-            self.tagged = [0; 64];
-            for i in engine::tag(&mut self.game.lock().unwrap(), h) {
-                self.tagged[i.di as usize] = 1;
+        // ───────────────────────────────────────────
+        // State machine
+        // ───────────────────────────────────────────
+
+        match self.state {
+            TurnState::GameOver => {
+                // nothing to do
             }
-            self.tagged[h as usize] = -1;
-            if self.rotated {
-                self.tagged.reverse();
+
+            TurnState::DecideTurn => {
+                // Decide whose turn from game.move_counter and player settings:
+                let next = (self.game.lock().unwrap().move_counter as usize) % 2;
+                let actor = self.players[next];
+                self.state = match actor {
+                    PlayerKind::Human => TurnState::AwaitSource,
+                    PlayerKind::Engine => TurnState::EngineThinking,
+                };
+
+                // If engine to move, kick off worker right away.
+                if self.state == TurnState::EngineThinking {
+                    let (tx, rx) = mpsc::channel();
+                    self.rx = Some(rx);
+                    let game = self.game.clone();
+                    thread::spawn(move || {
+                        let mv = engine::reply(&mut game.lock().unwrap());
+                        // Ignore send errors (UI may have been closed).
+                        let _ = tx.send(mv);
+                    });
+                }
             }
-            self.state = STATE_U1;
-        } else if self.state == STATE_U1 && x >= 0 {
-            let p1 = x + y * 8;
-            let h = self.p0;
-            if h == p1 as i32
-                || !engine::move_is_valid2(&mut self.game.lock().unwrap(), h as i64, p1 as i64)
-            {
-                self.msg = "invalid move, ignored.".to_owned();
-                self.tagged = [0; 64];
-                self.state = STATE_UZ;
-                return;
+
+            TurnState::AwaitSource => {
+                if let (Some(c), Some(r)) = (clicked_col, clicked_row) {
+                    let from = (c + r * 8) as i32;
+                    self.selected_from = from;
+                    self.tags = [0; 64];
+
+                    // Ask engine for legal targets and mark them
+                    for m in engine::tag(&mut self.game.lock().unwrap(), from as i64) {
+                        self.tags[m.di as usize] = 1;
+                    }
+                    self.tags[from as usize] = -1;
+
+                    if self.rotated {
+                        self.tags.reverse();
+                    }
+                    self.state = TurnState::AwaitDestination;
+                }
             }
-            let flag = engine::do_move(&mut self.game.lock().unwrap(), h as i8, p1, false);
-            self.tagged = [0; 64];
-            self.tagged[h as usize] = 2;
-            self.tagged[p1 as usize] = 2;
-            if self.rotated {
-                self.tagged.reverse();
-            }
-            self.msg = engine::move_to_str(&self.game.lock().unwrap(), h as i8, p1, flag);
-            self.state = STATE_UZ;
-        } else if self.state == STATE_U2 {
-            self.state = STATE_U3;
-            let (tx, rx) = mpsc::channel(); // Create a new channel
-            self.rx = Some(rx); // Store the receiver in the struct
-            let game_clone = self.game.clone();
-            thread::spawn(move || {
-                let m = engine::reply(&mut game_clone.lock().unwrap());
-                tx.send(m).unwrap();
-            });
-        } else if self.state == STATE_U3 {
-            // Check if the thread has finished
-            if let Some(rx) = &self.rx {
-                if let Ok(m) = rx.try_recv() {
-                    if m.state == engine::STATE_CHECKMATE {
-                        self.msg = " Checkmate, game terminated!".to_owned();
-                        self.state = STATE_UX;
+
+            TurnState::AwaitDestination => {
+                if let (Some(c), Some(r)) = (clicked_col, clicked_row) {
+                    let to = (c + r * 8) as i32;
+                    let from = self.selected_from;
+
+                    let valid = from != to
+                        && engine::move_is_valid2(
+                            &mut self.game.lock().unwrap(),
+                            from as i64,
+                            to as i64,
+                        );
+
+                    if !valid {
+                        self.window_title = "invalid move, ignored.".to_owned();
+                        self.tags = [0; 64];
+                        self.state = TurnState::DecideTurn;
                         return;
                     }
-                    self.tagged = [0; 64];
-                    self.tagged[m.src as usize] = 2;
-                    self.tagged[m.dst as usize] = 2;
-                    if self.rotated {
-                        self.tagged.reverse();
-                    }
+
                     let flag = engine::do_move(
                         &mut self.game.lock().unwrap(),
-                        m.src as i8,
-                        m.dst as i8,
+                        from as i8,
+                        to as i8,
                         false,
                     );
-                    self.msg = engine::move_to_str(
-                        &self.game.lock().unwrap(),
-                        m.src as i8,
-                        m.dst as i8,
-                        flag,
-                    ) + &format!(" (score: {})", m.score);
-                    if m.checkmate_in == 2 && m.score == engine::KING_VALUE as i64
-                    {
-                        println!("{}  {}", m.checkmate_in, m.score);
-                        //self.msg.push_str(" Checkmate, game terminated!");
-                        self.msg = " Checkmate, game terminated!".to_owned();
-                        self.state = STATE_UX;
-                        return;
-                    } else if m.score > engine::KING_VALUE_DIV_2 as i64
-                        || m.score < -engine::KING_VALUE_DIV_2 as i64
-                    {
-                        self.msg.push_str(&format!(
-                            " Checkmate in {}",
-                            if m.score > 0 {
+
+                    self.tags = [0; 64];
+                    self.tags[from as usize] = 2;
+                    self.tags[to as usize] = 2;
+                    if self.rotated {
+                        self.tags.reverse();
+                    }
+
+                    //self.window_title = engine::move_to_str(&self.game.lock().unwrap(), from as i8, to as i8, flag);
+                    self.window_title =
+                        engine::move_to_str(&self.game.lock().unwrap(), from as i8, to as i8, flag)
+                            .trim_start()
+                            .to_string();
+
+                    self.state = TurnState::DecideTurn;
+                }
+            }
+
+            TurnState::EngineThinking => {
+                // Poll for the worker result (non-blocking)
+                if let Some(rx) = &self.rx {
+                    if let Ok(m) = rx.try_recv() {
+                        // Clear the receiver so we never read twice
+                        self.rx = None;
+
+                        if m.state == engine::STATE_CHECKMATE {
+                            self.window_title = " Checkmate, game terminated!".to_owned();
+                            self.state = TurnState::GameOver;
+                            return;
+                        }
+
+                        self.tags = [0; 64];
+                        self.tags[m.src as usize] = 2;
+                        self.tags[m.dst as usize] = 2;
+                        if self.rotated {
+                            self.tags.reverse();
+                        }
+
+                        let flag = engine::do_move(
+                            &mut self.game.lock().unwrap(),
+                            m.src as i8,
+                            m.dst as i8,
+                            false,
+                        );
+
+                        let mut title = engine::move_to_str(
+                            &self.game.lock().unwrap(),
+                            m.src as i8,
+                            m.dst as i8,
+                            flag,
+                        )
+                        .trim_start()
+                        .to_string();
+                        title.push_str(&format!(" (scr: {})", m.score));
+
+                        // Checkmate reporting heuristics
+                        if m.checkmate_in == 2 && m.score == engine::KING_VALUE as i64 {
+                            self.window_title = " Checkmate, game terminated!".to_owned();
+                            self.state = TurnState::GameOver;
+                            return;
+                        } else if m.score > engine::KING_VALUE_DIV_2 as i64
+                            || m.score < -engine::KING_VALUE_DIV_2 as i64
+                        {
+                            // Convert ply distance to “in N”
+                            let cm_in = if m.score > 0 {
                                 m.checkmate_in / 2 - 1
                             } else {
                                 m.checkmate_in / 2 + 1
-                            }
-                        ));
+                            };
+                            title.push_str(&format!(" Checkmate in {}", cm_in));
+                        }
+
+                        self.window_title = title;
+                        self.state = TurnState::DecideTurn;
+                    } else {
+                        // Still thinking — request another repaint for smooth UI
+                        ctx.request_repaint();
                     }
-                    self.state = STATE_UZ;
-                    self.rx = None; // Reset the receiver
                 } else {
-                    // If the thread has not finished, keep the state as STATE_U3
-                    // self.state = STATE_U3;
-                    // ctx.request_repaint_after(Duration::from_millis(100));
+                    // Shouldn't happen: Thinking state must hold a receiver
+                    self.state = TurnState::DecideTurn;
                 }
             }
         }
     }
 }
-// 312 lines
+// 467 lines

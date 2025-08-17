@@ -4,18 +4,19 @@ version = "0.5.0"
 edition = "2024"
 
 [dependencies]
-mpsc = "*"
-num-traits = "*"
-# bitintr = "*"
-eframe = { version = "*", features = [
+# Used by `engine`
+num-traits = "0.2.19"
+
+eframe = { version = "0.32.1", features = [
     "default",
-    "__screenshot", # __screenshot is so we can dump a screenshot using EFRAME_SCREENSHOT_TO
+    "__screenshot", # enables EFRAME_SCREENSHOT_TO support
 ] }
 
-# For image support:
-egui_extras = { version = "*", features = ["default", "image"] }
+# Image support for drag-drop and loading (brings `image` transitively)
+egui_extras = { version = "0.32.1", features = ["default", "image"] }
 
-env_logger = { version = "0.10", default-features = false, features = [
+# Lightweight logging without default dependencies like regex
+env_logger = { version = "0.11", default-features = false, features = [
     "auto-color",
     "humantime",
 ] }
@@ -23,7 +24,13 @@ env_logger = { version = "0.10", default-features = false, features = [
 [profile.dev]
 opt-level = 3
 
-#[profile.release]
+[profile.release]
+# Good default for GUIs: faster codegen + smaller binaries
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "abort"
+strip = "symbols"
 
 [features]
 salewskiChessDebug = []
